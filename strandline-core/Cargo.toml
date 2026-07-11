@@ -1,0 +1,22 @@
+[package]
+name = "strandline-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Satellite-derived shoreline extraction and analysis engine (core library)"
+
+[features]
+default = ["parallel"]
+# Paraleliza el clasificador de píxeles (features + predicción MLP) con
+# rayon. Activado por default; desactivar para un binario determinista
+# single-thread o entornos sin threads.
+parallel = ["dep:rayon"]
+
+[dependencies]
+surtgis-core.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+rayon = { workspace = true, optional = true }

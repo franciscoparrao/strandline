@@ -1,0 +1,20 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# Escenas satelitales descargadas (pesadas, regenerables vía GEE con
+# spike/scripts/01_download_scenes.py). Los resultados del spike
+# (spike/results/) sí se versionan como evidencia.
+/spike/data/
+/data/
+
+# Symlink a los modelos de CoastSat en otro proyecto (ruta absoluta,
+# no portable). El JSON de pesos ya está embebido en strandline-core/models/.
+/spike/classification
+
+# Settings locales de Claude Code (específicos de la máquina)
+.claude/settings.local.json
+
+# Temporales
+*.pyc
+__pycache__/

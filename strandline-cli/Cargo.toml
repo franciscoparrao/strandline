@@ -1,0 +1,18 @@
+[package]
+name = "strandline-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Satellite-derived shoreline extraction and analysis engine (CLI)"
+
+[[bin]]
+name = "strandline"
+path = "src/main.rs"
+
+[dependencies]
+strandline-core = { path = "../strandline-core" }
+anyhow.workspace = true
+clap.workspace = true
+serde_json.workspace = true
