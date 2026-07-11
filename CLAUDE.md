@@ -202,3 +202,33 @@ Seminario MONCOSTA (U. Mayor / Centro Hémera, Idania Briceño) — bitácora en
   idéntico bit-a-bit al secuencial. 13 tests pasan en ambos modos. Cuello de
   botella restante: las 10 `local_std` corren en serie entre sí (cada una
   paralela por dentro).
+
+- **2026-07-11 (tarde-2)**: **Corrección mareal (scope item 6) implementada**.
+  Módulo `strandline-core::tide` autocontenido (no depende de transectos):
+  - `tide::correct_chainage` / `TideCorrection`: fórmula de Vos et al. 2019
+    `correction = (tide − ref)/beach_slope`, `corrected = raw − correction`.
+    Validada **exacto** (error 0.0) contra `VINA_DEL_MAR_tidal_corrected.pkl`.
+  - `tide::astro`: longitudes astronómicas medias (método Meeus), datetime→MJD.
+    Validadas contra `pyTMD.astro.mean_longitudes` a <1e-4°.
+  - `tide::harmonic`: **síntesis armónica nativa** desde constituyentes
+    locales (13 principales: M2,S2,N2,K2,K1,O1,P1,Q1,Mf,Mm,Ssa,Sa,M4), con
+    argumento de equilibrio Doodson (τ = tiempo lunar medio) + factores
+    nodales de Schureman. El diferenciador que elimina el *dependency hell*
+    de pyTMD/pyfes. **Validada contra pyTMD** (corrections='GOT'): V0 coincide
+    a <0.01°; predicción total con constituyentes realistas de Chile central
+    coincide a **1.15 mm** de error máximo.
+  - `tide::read_csv` / `read_constituents_csv`: fuente de marea alternativa
+    (SHOA/pyTMD/tide gauge) con parser de timestamp propio, sin deps.
+  - CLI: subcomando `strandline tide` (predice marea + corrección horizontal).
+  - Hallazgo de convención: los offsets de fase de los diurnos son K1 +90°,
+    O1/P1/Q1 −90° (verificado contra el G de pyTMD); Schureman clásico para
+    Mf/Mm difiere ~4% en f y P1 lo trata como solar puro, pero el error de
+    predicción total queda en mm por el bajo peso de esos constituyentes.
+  - NOTA importante: la precisión mm es del MOTOR dados los constituyentes
+    correctos. La demo del CLI usa constituyentes aproximados (adivinados) →
+    r=0.78 vs GOT5.5; para precisión real hay que cargar los constituyentes
+    locales verdaderos (SHOA publica constantes armónicas de puertos chilenos,
+    o extraer una vez de pyTMD). 26 tests totales, clippy limpio.
+  - **Pendiente V1**: la corrección se integrará con los transectos (item 7)
+    cuando existan — hoy `correct_chainage` opera sobre cualquier serie de
+    cross-shore distances.

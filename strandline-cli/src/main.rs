@@ -1,9 +1,11 @@
-//! CLI de strandline. Spike V1: subcomando `extract`.
+//! CLI de strandline. Subcomandos `extract` (shoreline) y `tide`
+//! (predicción y corrección mareal).
 
 use std::path::PathBuf;
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
+use strandline_core::tide::{self, harmonic::TidePredictor, TideCorrection};
 use strandline_core::{extract_shoreline, ExtractParams};
 
 #[derive(Parser)]
@@ -49,6 +51,32 @@ enum Command {
         #[arg(long, default_value_t = 500.0)]
         min_beach_area: f64,
         /// GeoJSON de salida.
+        #[arg(short, long)]
+        output: PathBuf,
+    },
+    /// Predice la marea (síntesis armónica nativa) para las fechas dadas y,
+    /// opcionalmente, calcula la corrección horizontal de Vos et al. (2019).
+    Tide {
+        /// CSV de constituyentes locales (columnas: name, amplitude, phase_g).
+        #[arg(long)]
+        constituents: PathBuf,
+        /// CSV con una columna de timestamps (UTC ISO) a predecir.
+        #[arg(long)]
+        dates: PathBuf,
+        /// Nombre de la columna de timestamps en el CSV de fechas.
+        #[arg(long, default_value = "date")]
+        date_col: String,
+        /// Nivel medio del mar respecto al datum (m).
+        #[arg(long, default_value_t = 0.0)]
+        mean_sea_level: f64,
+        /// Pendiente de playa tan(β); si se da, agrega la corrección
+        /// horizontal (m) a la salida.
+        #[arg(long)]
+        beach_slope: Option<f64>,
+        /// Elevación del datum de referencia para la corrección (m).
+        #[arg(long, default_value_t = 0.0)]
+        reference_elevation: f64,
+        /// CSV de salida (timestamp_mjd, tide_m[, correction_m]).
         #[arg(short, long)]
         output: PathBuf,
     },
@@ -108,6 +136,76 @@ fn main() -> anyhow::Result<()> {
             eprintln!(
                 "  tiempos [ms]: read = {t_read:.1}, mndwi = {t_mndwi:.1}, classify = {t_classify:.1}, otsu = {t_otsu:.1}, contour = {t_contour:.1}, total = {:.1}",
                 t_read + t_mndwi + t_classify + t_otsu + t_contour
+            );
+        }
+        Command::Tide {
+            constituents,
+            dates,
+            date_col,
+            mean_sea_level,
+            beach_slope,
+            reference_elevation,
+            output,
+        } => {
+            let records = tide::read_constituents_csv(&constituents)
+                .with_context(|| format!("leyendo constituyentes de {}", constituents.display()))?;
+            let (predictor, unknown) = TidePredictor::from_records(&records, mean_sea_level);
+            if !unknown.is_empty() {
+                eprintln!(
+                    "aviso: {} constituyente(s) desconocido(s) ignorado(s): {}",
+                    unknown.len(),
+                    unknown.join(", ")
+                );
+            }
+            anyhow::ensure!(!predictor.is_empty(), "no hay constituyentes válidos");
+
+            // fechas: parsear la columna de timestamps a MJD
+            let text = std::fs::read_to_string(&dates)
+                .with_context(|| format!("leyendo fechas de {}", dates.display()))?;
+            let mut lines = text.lines().filter(|l| !l.trim().is_empty());
+            let header: Vec<String> = lines
+                .next()
+                .unwrap_or_default()
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .collect();
+            let ci = header.iter().position(|c| c == &date_col).ok_or_else(|| {
+                anyhow::anyhow!("falta columna '{date_col}' en {}", dates.display())
+            })?;
+            let mjds: Vec<f64> = lines
+                .filter_map(|l| l.split(',').nth(ci).map(str::trim).and_then(tide::parse_timestamp))
+                .collect();
+            anyhow::ensure!(!mjds.is_empty(), "no se parseó ninguna fecha");
+
+            let tides = predictor.predict_many(&mjds);
+            let correction = beach_slope
+                .map(|slope| TideCorrection::new(slope, reference_elevation));
+
+            let mut out = String::from("mjd,tide_m");
+            if correction.is_some() {
+                out.push_str(",correction_m");
+            }
+            out.push('\n');
+            for (mjd, tide_level) in mjds.iter().zip(&tides) {
+                out.push_str(&format!("{mjd:.6},{tide_level:.4}"));
+                if let Some(c) = &correction {
+                    out.push_str(&format!(",{:.4}", c.horizontal_shift(*tide_level)));
+                }
+                out.push('\n');
+            }
+            std::fs::write(&output, out)
+                .with_context(|| format!("escribiendo {}", output.display()))?;
+
+            let (tmin, tmax) = tides.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(mn, mx), &t| {
+                (mn.min(t), mx.max(t))
+            });
+            eprintln!(
+                "{} fechas, {} constituyentes; marea [{:.3}, {:.3}] m -> {}",
+                mjds.len(),
+                predictor.len(),
+                tmin,
+                tmax,
+                output.display()
             );
         }
     }

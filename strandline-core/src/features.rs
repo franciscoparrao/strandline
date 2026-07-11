@@ -70,17 +70,17 @@ impl<'a> FeatureBank<'a> {
     #[inline]
     pub fn gather(&self, r: usize, c: usize) -> [f32; N_FEATURES] {
         let mut f = [0f32; N_FEATURES];
-        for b in 0..5 {
-            f[b] = self.bands[b].data()[[r, c]];
+        for (b, band) in self.bands.iter().take(5).enumerate() {
+            f[b] = band.data()[[r, c]];
         }
-        for k in 0..5 {
-            f[5 + k] = self.indices[k][[r, c]];
+        for (k, idx) in self.indices.iter().enumerate() {
+            f[5 + k] = idx[[r, c]];
         }
-        for b in 0..5 {
-            f[10 + b] = self.band_std[b][[r, c]];
+        for (b, std) in self.band_std.iter().enumerate() {
+            f[10 + b] = std[[r, c]];
         }
-        for k in 0..5 {
-            f[15 + k] = self.index_std[k][[r, c]];
+        for (k, std) in self.index_std.iter().enumerate() {
+            f[15 + k] = std[[r, c]];
         }
         f
     }
@@ -130,8 +130,8 @@ fn reflect_index(i: isize, n: usize) -> usize {
 /// Desviación estándar local en ventana 3×3, NaN-aware (ignora vecinos no
 /// finitos, restaura NaN si el píxel central no es finito), con padding
 /// por reflexión en los bordes. Réplica funcional de `SDS_tools.image_std`
-/// (astropy `convolve` con kernel uniforme + `nan_treatment='interpolate'`
-/// + `preserve_nan=True`): para un kernel uniforme, la interpolación NaN-aware
+/// (astropy `convolve` con kernel uniforme, `nan_treatment='interpolate'`,
+/// `preserve_nan=True`): para un kernel uniforme, la interpolación NaN-aware
 /// de astropy equivale a promediar sólo sobre los vecinos finitos.
 ///
 /// Con la feature `parallel` (default) el cómputo se reparte por filas con
@@ -140,30 +140,28 @@ fn reflect_index(i: isize, n: usize) -> usize {
 /// variable, así que la paralelización no altera el redondeo.
 fn local_std(img: &Array2<f32>) -> Array2<f32> {
     let (rows, cols) = img.dim();
+    let mut data = vec![f32::NAN; rows * cols];
+    let fill_row = |r: usize, row_out: &mut [f32]| {
+        for (c, out) in row_out.iter_mut().enumerate() {
+            *out = std_at(img, r, c, rows, cols);
+        }
+    };
 
     #[cfg(feature = "parallel")]
     {
         use rayon::prelude::*;
-        let mut data = vec![f32::NAN; rows * cols];
-        data.par_chunks_mut(cols).enumerate().for_each(|(r, row_out)| {
-            for (c, out) in row_out.iter_mut().enumerate() {
-                *out = std_at(img, r, c, rows, cols);
-            }
-        });
-        return Array2::from_shape_vec((rows, cols), data)
-            .expect("local_std: shape mismatch building output");
+        data.par_chunks_mut(cols)
+            .enumerate()
+            .for_each(|(r, row_out)| fill_row(r, row_out));
     }
-
     #[cfg(not(feature = "parallel"))]
     {
-        let mut out = Array2::<f32>::from_elem((rows, cols), f32::NAN);
-        for r in 0..rows {
-            for c in 0..cols {
-                out[[r, c]] = std_at(img, r, c, rows, cols);
-            }
-        }
-        out
+        data.chunks_mut(cols)
+            .enumerate()
+            .for_each(|(r, row_out)| fill_row(r, row_out));
     }
+
+    Array2::from_shape_vec((rows, cols), data).expect("local_std: shape mismatch building output")
 }
 
 /// Desviación estándar local en un solo píxel `(r, c)` sobre la ventana

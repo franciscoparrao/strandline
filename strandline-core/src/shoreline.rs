@@ -250,7 +250,7 @@ pub fn extract_shoreline(
     let t_otsu = t2.elapsed().as_secs_f64() * 1000.0;
 
     let t3 = Instant::now();
-    let gt = green.transform().clone();
+    let gt = *green.transform();
     let lines: Vec<Vec<(f64, f64)>> = contours
         .into_iter()
         .map(|c| {

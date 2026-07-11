@@ -18,7 +18,9 @@ pub mod index;
 pub mod mlp;
 pub mod otsu;
 pub mod shoreline;
+pub mod tide;
 
 pub use classify::Classification;
 pub use error::StrandlineError;
 pub use shoreline::{extract_shoreline, ExtractParams, Shoreline};
+pub use tide::{correct_chainage, TideCorrection};
