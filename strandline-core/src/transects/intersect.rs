@@ -26,6 +26,15 @@ pub enum MultipleIntersection {
 
 /// Parámetros de la intersección y su control de calidad. Los defaults son
 /// los del pipeline de referencia (Viña del Mar).
+///
+/// **Nota de semántica (paridad CoastSat)**: la "franja" alrededor del
+/// transecto se mide respecto a la **recta infinita** que pasa por
+/// `origin`→`end`, no al segmento. Un punto de shoreline más allá del
+/// extremo mar del transecto sigue contando mientras esté a menos de
+/// `along_dist` del eje y a menos de `max_origin_dist` del `origin` — es el
+/// comportamiento exacto de `compute_intersection_QC` de CoastSat, y por
+/// eso `max_origin_dist` (y no el largo del transecto) es el límite real
+/// de alcance hacia el mar.
 #[derive(Debug, Clone, Copy)]
 pub struct IntersectionSettings {
     /// Semiancho de la franja alrededor del eje del transecto (m).

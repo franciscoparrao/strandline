@@ -11,12 +11,14 @@
 //! sin offset de medio píxel.
 
 pub mod classify;
+pub mod cloud;
 pub mod contour;
 pub mod error;
 pub mod features;
 pub mod index;
 pub mod mlp;
 pub mod otsu;
+pub mod proj;
 pub mod qc;
 pub mod rates;
 pub mod shoreline;
@@ -25,6 +27,7 @@ pub mod transects;
 
 pub use classify::Classification;
 pub use error::StrandlineError;
+pub use proj::transform_points;
 pub use qc::{classify, evaluate as qc_evaluate, ChangeClass, QcCriteria, QcReason};
 pub use rates::{compute_rates, Rates};
 pub use shoreline::{extract_shoreline, ExtractParams, Shoreline};

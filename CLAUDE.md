@@ -375,3 +375,23 @@ benchmark (software + accuracy vs CoastSat + velocidad).
     pesos idénticos coincide a 5e-5). Trampa de uso documentada: en sitios
     multi-misión pasar pesos reales por satélite en la columna `weight`.
   - 46 tests (44 unitarios + 2 integración), clippy limpio.
+
+- **2026-07-12 (2)**: **v0.2 COMPLETO — R2–R7 cerrados** (adenda 2 de la
+  auditoría).
+  - R6: variantes de error Io/Parse/UnsupportedCrs. R3: `--nir-band`.
+    R7: doc de línea-infinita.
+  - **R2**: módulo `cloud` — máscara limpia (remove_small_objects 4-conn,
+    40 px, mata las falsas nubes de swash de CFMASK) + buffer `dist_clouds`
+    300 m con EDT exacta (Felzenszwalb, validada vs fuerza bruta), partiendo
+    polilíneas. **Exactitud vs CoastSat mejoró: mediana 0.30 → 0.20 m, media
+    7.71 → 2.93 m, p90 → 1.20 m**; costa des-fragmentada (3-9 líneas vs
+    9-37). Goldens del fixture actualizados (1 línea continua).
+  - **R4+R5**: módulo `proj` — UTM↔WGS84 nativo (Karney n⁴, sin PROJ),
+    validado vs pyproj a <1 mm incluyendo el caso GEE zona-norte/northing
+    negativo. Guardia anti-CRS-geográfico. `Shoreline::reproject` +
+    `--output-epsg` (4326 → GeoJSON RFC 7946; proyectado → member crs
+    legacy). End-to-end: reproyección nativa reproduce los 0.20 m del flujo
+    pyproj.
+  - 53 tests (51 + 2 integración), clippy limpio, ambos modos.
+  - v0.2 queda cerrado salvo proptest/fuzzing (opcionales). Siguiente:
+    v0.3 SOTA-core (S1 subpixel erf + S4 slope satelital + S5a σ).

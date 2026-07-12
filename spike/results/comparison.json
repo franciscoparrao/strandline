@@ -2,36 +2,36 @@
   "per_scene": [
     {
       "date": "2020-01-10",
-      "n_ref_pts": 543,
-      "frac_ref_excluded": 0.3473557692307693,
-      "median_ref2rust": 0.02306884122981412,
-      "mean_ref2rust": 11.043205668071334,
-      "p90_ref2rust": 47.44544881981178,
-      "median_rust2ref": 0.021683635103975182,
-      "mean_rust2ref": 0.023415686955398543,
-      "p90_rust2ref": 0.03308279613396693
+      "n_ref_pts": 832,
+      "frac_ref_excluded": 0.0,
+      "median_ref2rust": 0.022188463772271416,
+      "mean_ref2rust": 0.02375445016264359,
+      "p90_ref2rust": 0.033840187217950145,
+      "median_rust2ref": 0.02234302826957767,
+      "mean_rust2ref": 0.04209974049042975,
+      "p90_rust2ref": 0.03381359535964812
     },
     {
       "date": "2020-01-26",
-      "n_ref_pts": 611,
-      "frac_ref_excluded": 0.3188405797101449,
-      "median_ref2rust": 0.18642723954916735,
-      "mean_ref2rust": 12.020020599544477,
-      "p90_ref2rust": 62.00125717272887,
-      "median_rust2ref": 0.1765409623704754,
-      "mean_rust2ref": 0.19851012863585504,
-      "p90_rust2ref": 0.2847960296550689
+      "n_ref_pts": 864,
+      "frac_ref_excluded": 0.03678929765886285,
+      "median_ref2rust": 0.15862566133890066,
+      "mean_ref2rust": 0.17483585324047282,
+      "p90_ref2rust": 0.25286040820094,
+      "median_rust2ref": 0.16678102326930047,
+      "mean_rust2ref": 0.19789646342162007,
+      "p90_rust2ref": 0.2458051139583791
     },
     {
       "date": "2020-02-18",
-      "n_ref_pts": 121,
-      "frac_ref_excluded": 0.8618721461187214,
-      "median_ref2rust": 0.12038319967135051,
-      "mean_ref2rust": 0.12462634150901684,
-      "p90_ref2rust": 0.17227742717152678,
-      "median_rust2ref": 0.12814535935945165,
-      "mean_rust2ref": 0.12621119100961187,
-      "p90_rust2ref": 0.1745572720955642
+      "n_ref_pts": 749,
+      "frac_ref_excluded": 0.14497716894977164,
+      "median_ref2rust": 0.1241162165764791,
+      "mean_ref2rust": 3.7869921333542163,
+      "p90_ref2rust": 0.21020244330689708,
+      "median_rust2ref": 0.12571773015998527,
+      "mean_rust2ref": 0.1415445491538652,
+      "p90_rust2ref": 0.19706084343878805
     },
     {
       "date": "2020-03-30",
@@ -46,34 +46,34 @@
     },
     {
       "date": "2020-04-06",
-      "n_ref_pts": 375,
-      "frac_ref_excluded": 0.6276067527308837,
-      "median_ref2rust": 0.22680441188151024,
-      "mean_ref2rust": 7.576979258103025,
-      "p90_ref2rust": 1.2526435823085795,
-      "median_rust2ref": 0.20506228300520107,
-      "mean_rust2ref": 0.22340893960741304,
-      "p90_rust2ref": 0.31114603859011647
+      "n_ref_pts": 967,
+      "frac_ref_excluded": 0.03972194637537241,
+      "median_ref2rust": 0.22131544082856008,
+      "mean_ref2rust": 2.003119309530117,
+      "p90_ref2rust": 0.4217185743187011,
+      "median_rust2ref": 0.20530535581183057,
+      "mean_rust2ref": 0.23598587174514057,
+      "p90_rust2ref": 0.3479759331311424
     },
     {
       "date": "2020-04-15",
-      "n_ref_pts": 1129,
-      "frac_ref_excluded": 0.4198355601233299,
-      "median_ref2rust": 0.3963756189045065,
-      "mean_ref2rust": 10.180803808662002,
-      "p90_ref2rust": 33.44926098708629,
-      "median_rust2ref": 0.36131220616053783,
-      "mean_rust2ref": 0.598846191345952,
-      "p90_rust2ref": 0.8677893565714407
+      "n_ref_pts": 1205,
+      "frac_ref_excluded": 0.380781089414183,
+      "median_ref2rust": 0.3711342320957198,
+      "mean_ref2rust": 8.529253908168226,
+      "p90_ref2rust": 2.0249093218058976,
+      "median_rust2ref": 0.3440706703140558,
+      "mean_rust2ref": 0.5616267062724078,
+      "p90_rust2ref": 0.8520925773091677
     }
   ],
   "global": {
-    "median_ref2rust": 0.35204051252962876,
-    "median_rust2ref": 0.2981358623075603,
-    "mean_ref2rust": 7.712628718751852,
-    "mean_rust2ref": 0.5896036742984174,
-    "p90_ref2rust": 2.711866448124099,
-    "p90_rust2ref": 1.240293930817088
+    "median_ref2rust": 0.2030775578411423,
+    "median_rust2ref": 0.19550572046504722,
+    "mean_ref2rust": 2.9281013280236774,
+    "mean_rust2ref": 0.4347884532146824,
+    "p90_ref2rust": 1.2043186949808868,
+    "p90_rust2ref": 1.024339647841713
   },
   "verdict": "GO"
 }

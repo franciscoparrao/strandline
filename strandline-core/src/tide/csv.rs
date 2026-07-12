@@ -52,28 +52,29 @@ impl TideSeries {
 /// Lee una serie de marea desde CSV. `time_col` y `elev_col` son los
 /// nombres de las columnas de timestamp y elevación en la fila de header.
 ///
-/// Los timestamps se asumen en **UTC**, en formato ISO
-/// `YYYY-MM-DD[ T]HH:MM:SS[.f][Z|±HH:MM]` (cualquier sufijo de zona se
-/// ignora — convierte a UTC antes si tu fuente está en hora local). Las
-/// filas se ordenan por tiempo antes de devolverlas.
+/// Timestamps en formato ISO `YYYY-MM-DD[ T]HH:MM:SS[.f][Z|±HH:MM]`. Los
+/// sufijos de zona horaria **se aplican** (el resultado interno siempre es
+/// UTC); sin sufijo se asume UTC. Las filas se ordenan por tiempo antes de
+/// devolverlas.
 pub fn read_csv(path: impl AsRef<Path>, time_col: &str, elev_col: &str) -> Result<TideSeries> {
-    let text = fs::read_to_string(path.as_ref()).map_err(|e| {
-        StrandlineError::ShapeMismatch(format!("no se pudo leer CSV: {e}"))
+    let text = fs::read_to_string(path.as_ref()).map_err(|source| StrandlineError::Io {
+        path: path.as_ref().display().to_string(),
+        source,
     })?;
     let mut lines = text.lines().filter(|l| !l.trim().is_empty());
 
     let header = lines
         .next()
-        .ok_or_else(|| StrandlineError::ShapeMismatch("CSV vacío".into()))?;
+        .ok_or_else(|| StrandlineError::Parse("CSV vacío".into()))?;
     let cols: Vec<&str> = header.split(',').map(|s| s.trim()).collect();
     let ti = cols
         .iter()
         .position(|&c| c == time_col)
-        .ok_or_else(|| StrandlineError::ShapeMismatch(format!("falta columna '{time_col}'")))?;
+        .ok_or_else(|| StrandlineError::Parse(format!("falta columna '{time_col}'")))?;
     let ei = cols
         .iter()
         .position(|&c| c == elev_col)
-        .ok_or_else(|| StrandlineError::ShapeMismatch(format!("falta columna '{elev_col}'")))?;
+        .ok_or_else(|| StrandlineError::Parse(format!("falta columna '{elev_col}'")))?;
 
     let mut rows: Vec<(f64, f64)> = Vec::new();
     for (lineno, line) in lines.enumerate() {
@@ -82,14 +83,14 @@ pub fn read_csv(path: impl AsRef<Path>, time_col: &str, elev_col: &str) -> Resul
             continue;
         }
         let mjd = parse_timestamp(fields[ti]).ok_or_else(|| {
-            StrandlineError::ShapeMismatch(format!(
+            StrandlineError::Parse(format!(
                 "timestamp inválido en línea {}: '{}'",
                 lineno + 2,
                 fields[ti]
             ))
         })?;
         let elev: f64 = fields[ei].parse().map_err(|_| {
-            StrandlineError::ShapeMismatch(format!(
+            StrandlineError::Parse(format!(
                 "elevación inválida en línea {}: '{}'",
                 lineno + 2,
                 fields[ei]
@@ -111,17 +112,19 @@ pub fn read_csv(path: impl AsRef<Path>, time_col: &str, elev_col: &str) -> Resul
 pub fn read_constituents_csv(
     path: impl AsRef<Path>,
 ) -> Result<Vec<(String, f64, f64)>> {
-    let text = fs::read_to_string(path.as_ref())
-        .map_err(|e| StrandlineError::ShapeMismatch(format!("no se pudo leer CSV: {e}")))?;
+    let text = fs::read_to_string(path.as_ref()).map_err(|source| StrandlineError::Io {
+        path: path.as_ref().display().to_string(),
+        source,
+    })?;
     let mut lines = text.lines().filter(|l| !l.trim().is_empty());
     let header = lines
         .next()
-        .ok_or_else(|| StrandlineError::ShapeMismatch("CSV vacío".into()))?;
+        .ok_or_else(|| StrandlineError::Parse("CSV vacío".into()))?;
     let cols: Vec<&str> = header.split(',').map(|s| s.trim()).collect();
     let find = |name: &str| {
         cols.iter()
             .position(|&c| c == name)
-            .ok_or_else(|| StrandlineError::ShapeMismatch(format!("falta columna '{name}'")))
+            .ok_or_else(|| StrandlineError::Parse(format!("falta columna '{name}'")))
     };
     let (ni, ai, pi) = (find("name")?, find("amplitude")?, find("phase_g")?);
 
@@ -133,10 +136,10 @@ pub fn read_constituents_csv(
         }
         let amp: f64 = f[ai]
             .parse()
-            .map_err(|_| StrandlineError::ShapeMismatch(format!("amplitud inválida: '{}'", f[ai])))?;
+            .map_err(|_| StrandlineError::Parse(format!("amplitud inválida: '{}'", f[ai])))?;
         let ph: f64 = f[pi]
             .parse()
-            .map_err(|_| StrandlineError::ShapeMismatch(format!("fase inválida: '{}'", f[pi])))?;
+            .map_err(|_| StrandlineError::Parse(format!("fase inválida: '{}'", f[pi])))?;
         out.push((f[ni].to_string(), amp, ph));
     }
     Ok(out)

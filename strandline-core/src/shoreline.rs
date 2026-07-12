@@ -9,6 +9,7 @@ use surtgis_core::io::read_geotiff_bands;
 use surtgis_core::raster::{GeoTransform, Raster};
 
 use crate::classify::{classify_pixels, Classification};
+use crate::cloud::{cloud_mask_from_qa, distance_to_true_px};
 use crate::contour::find_contours;
 use crate::error::{Result, StrandlineError};
 use crate::index::{mndwi, nd_index};
@@ -19,6 +20,10 @@ use crate::otsu::{balanced_otsu, otsu_threshold};
 pub struct ExtractParams {
     /// Banda Green, 1-based (default 2: ms de CoastSat L8 = B,G,R,NIR,SWIR1).
     pub green_band: usize,
+    /// Banda NIR, 1-based (default 4). Usada por el modo `coastsat_compat`
+    /// (el umbral del quirk se calcula sobre el NDWI = NIR−G) y por el
+    /// clasificador.
+    pub nir_band: usize,
     /// Banda SWIR1, 1-based (default 5).
     pub swir1_band: usize,
     /// Largo mínimo de shoreline en metros (default 200, como CoastSat).
@@ -43,12 +48,22 @@ pub struct ExtractParams {
     /// (default 500, como `min_beach_area` de CoastSat). Sólo aplica si
     /// `use_classifier = true`.
     pub min_beach_area_m2: f64,
+    /// Buffer de exclusión alrededor de nubes (m): los puntos de shoreline
+    /// a menos de esta distancia de un píxel nube se eliminan, partiendo
+    /// la polilínea (default 300, como `dist_clouds` de CoastSat).
+    /// `0` = desactivado. Requiere máscara QA.
+    pub dist_clouds_m: f64,
+    /// Tamaño mínimo (px) de un blob de nube para conservarlo en la máscara
+    /// (default 40, como CoastSat): elimina las falsas nubes de swash/espuma
+    /// de CFMASK que fragmentarían la costa. `0` = sin filtro.
+    pub cloud_min_size_px: usize,
 }
 
 impl Default for ExtractParams {
     fn default() -> Self {
         Self {
             green_band: 2,
+            nir_band: 4,
             swir1_band: 5,
             min_length_m: 200.0,
             level: None,
@@ -56,6 +71,8 @@ impl Default for ExtractParams {
             use_classifier: false,
             coastsat_compat: false,
             min_beach_area_m2: 500.0,
+            dist_clouds_m: 300.0,
+            cloud_min_size_px: 40,
         }
     }
 }
@@ -167,7 +184,7 @@ pub fn extract_shoreline(
     let t0 = Instant::now();
     let bands: Vec<Raster<f32>> = read_geotiff_bands(ms_path)?;
     let n = bands.len();
-    for b in [params.green_band, params.swir1_band] {
+    for b in [params.green_band, params.nir_band, params.swir1_band] {
         if b == 0 || b > n {
             return Err(StrandlineError::BandOutOfRange {
                 requested: b,
@@ -185,6 +202,17 @@ pub fn extract_shoreline(
     let green = &bands[params.green_band - 1];
     let swir1 = &bands[params.swir1_band - 1];
 
+    // R4: rechazar CRS geográfico — min_length/dist_clouds/transectos
+    // asumen unidades métricas; en grados producirían basura silenciosa
+    if let Some(crs) = green.crs() {
+        if crs.is_geographic() {
+            return Err(StrandlineError::UnsupportedCrs(format!(
+                "raster en CRS geográfico ({}); reproyecta a UTM antes de extraer",
+                crs.identifier()
+            )));
+        }
+    }
+
     let qa: Option<Raster<u16>> = match qa_path {
         Some(p) => Some(surtgis_core::io::read_geotiff(p, Some(0))?),
         None => None,
@@ -198,17 +226,22 @@ pub fn extract_shoreline(
             )));
         }
     }
+    // máscara de nubes limpia (blobs de swash falsos removidos) usada por
+    // todo el pipeline en lugar de los bits QA crudos
+    let cloud_mask = qa
+        .as_ref()
+        .map(|q| cloud_mask_from_qa(q, params.cloud_min_size_px));
     let t_read = t0.elapsed().as_secs_f64() * 1000.0;
 
     let t1 = Instant::now();
-    let ndwi = mndwi(green, swir1, qa.as_ref());
+    let ndwi = mndwi(green, swir1, cloud_mask.as_ref());
     let t_mndwi = t1.elapsed().as_secs_f64() * 1000.0;
 
     let t_classify_start = Instant::now();
     let classification: Option<Classification> = if use_classifier {
         let px_area = green.cell_size().powi(2);
         let min_area_px = ((params.min_beach_area_m2 / px_area).round() as usize).max(1);
-        Some(classify_pixels(&bands, qa.as_ref(), min_area_px)?)
+        Some(classify_pixels(&bands, cloud_mask.as_ref(), min_area_px)?)
     } else {
         None
     };
@@ -222,9 +255,9 @@ pub fn extract_shoreline(
                 // El quirk de CoastSat: el umbral que contornea el MNDWI
                 // (signo CoastSat, SWIR−G) en realidad se calcula sobre el
                 // NDWI (NIR−G). Ver spike/RESULTS.md.
-                let nir = &bands[3];
-                let ndwi_cs = nd_index(nir, green, qa.as_ref());
-                let mwi_cs = nd_index(swir1, green, qa.as_ref());
+                let nir = &bands[params.nir_band - 1];
+                let ndwi_cs = nd_index(nir, green, cloud_mask.as_ref());
+                let mwi_cs = nd_index(swir1, green, cloud_mask.as_ref());
                 let water_vals = values_at(&ndwi_cs, &cls.water);
                 let sand_vals = values_at(&ndwi_cs, &cls.sand);
                 let t = balanced_otsu(&water_vals, &sand_vals)?;
@@ -251,15 +284,51 @@ pub fn extract_shoreline(
 
     let t3 = Instant::now();
     let gt = *green.transform();
-    let lines: Vec<Vec<(f64, f64)>> = contours
-        .into_iter()
-        .map(|c| {
-            c.into_iter()
-                .map(|(r, col)| pix2world(&gt, r, col))
-                .collect::<Vec<_>>()
-        })
-        .filter(|l: &Vec<(f64, f64)>| line_length(l) >= params.min_length_m)
-        .collect();
+    let cell = green.cell_size();
+    // transformada de distancia a nubes (px), solo si hay buffer activo
+    let cloud_dist_px = match &cloud_mask {
+        Some(m) if params.dist_clouds_m > 0.0 && m.iter().any(|&v| v) => {
+            Some(distance_to_true_px(m))
+        }
+        _ => None,
+    };
+    let dist_threshold_px = params.dist_clouds_m / cell;
+
+    // orden de CoastSat process_shoreline: filtro de largo primero, buffer
+    // de nubes después (los puntos removidos parten la polilínea; los trozos
+    // resultantes NO se re-filtran por largo, igual que CoastSat)
+    let mut lines: Vec<Vec<(f64, f64)>> = Vec::new();
+    for contour in contours {
+        let world: Vec<(f64, f64)> = contour
+            .iter()
+            .map(|&(r, col)| pix2world(&gt, r, col))
+            .collect();
+        if line_length(&world) < params.min_length_m {
+            continue;
+        }
+        match &cloud_dist_px {
+            None => lines.push(world),
+            Some(dist) => {
+                let (rows, cols) = dist.dim();
+                let mut run: Vec<(f64, f64)> = Vec::new();
+                for (i, &(r, col)) in contour.iter().enumerate() {
+                    let rr = (r.round() as isize).clamp(0, rows as isize - 1) as usize;
+                    let cc = (col.round() as isize).clamp(0, cols as isize - 1) as usize;
+                    if (dist[[rr, cc]] as f64) >= dist_threshold_px {
+                        run.push(world[i]);
+                    } else {
+                        if run.len() >= 2 {
+                            lines.push(std::mem::take(&mut run));
+                        }
+                        run.clear();
+                    }
+                }
+                if run.len() >= 2 {
+                    lines.push(run);
+                }
+            }
+        }
+    }
     let t_contour = t3.elapsed().as_secs_f64() * 1000.0;
 
     let classification_summary = classification.as_ref().map(|cls| {
@@ -281,8 +350,31 @@ pub fn extract_shoreline(
 }
 
 impl Shoreline {
-    /// Serializa las polilíneas como FeatureCollection GeoJSON
-    /// (coordenadas en el CRS nativo; el EPSG queda en `properties`).
+    /// Reproyecta las polilíneas in-place a `to_epsg` (4326 o UTM WGS84).
+    /// Requiere que el raster de origen haya declarado su EPSG.
+    pub fn reproject(&mut self, to_epsg: u32) -> Result<()> {
+        let from = self.epsg.ok_or_else(|| {
+            StrandlineError::UnsupportedCrs(
+                "el raster de origen no declara EPSG; no se puede reproyectar".into(),
+            )
+        })?;
+        if from == to_epsg {
+            return Ok(());
+        }
+        for line in &mut self.lines {
+            *line = crate::proj::transform_points(line, from, to_epsg)?;
+        }
+        self.epsg = Some(to_epsg);
+        Ok(())
+    }
+
+    /// Serializa las polilíneas como FeatureCollection GeoJSON.
+    ///
+    /// Con EPSG 4326 el resultado es conforme a RFC 7946 (coordenadas
+    /// lon/lat, sin member `crs`). Con un CRS proyectado se agrega el
+    /// member `crs` legacy (formato "name" pre-RFC, que QGIS/GDAL honran)
+    /// además del EPSG en `properties` — útil para trabajar en metros,
+    /// pero técnicamente fuera de RFC 7946.
     pub fn to_geojson(&self, scene: &str) -> serde_json::Value {
         let features: Vec<serde_json::Value> = self
             .lines
@@ -303,9 +395,18 @@ impl Shoreline {
                 })
             })
             .collect();
-        serde_json::json!({
+        let mut fc = serde_json::json!({
             "type": "FeatureCollection",
             "features": features,
-        })
+        });
+        if let Some(epsg) = self.epsg {
+            if epsg != 4326 {
+                fc["crs"] = serde_json::json!({
+                    "type": "name",
+                    "properties": { "name": format!("urn:ogc:def:crs:EPSG::{epsg}") }
+                });
+            }
+        }
+        fc
     }
 }

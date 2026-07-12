@@ -35,7 +35,7 @@ pub struct FeatureBank<'a> {
 impl<'a> FeatureBank<'a> {
     /// Construye el banco: 5 índices + 10 desviaciones estándar locales.
     /// `bands` debe tener al menos 5 elementos (orden CoastSat B,G,R,NIR,SWIR1).
-    pub fn build(bands: &'a [Raster<f32>], qa: Option<&Raster<u16>>) -> Result<Self> {
+    pub fn build(bands: &'a [Raster<f32>], cloud: Option<&Array2<bool>>) -> Result<Self> {
         if bands.len() < 5 {
             return Err(StrandlineError::BandOutOfRange {
                 requested: 5,
@@ -43,11 +43,11 @@ impl<'a> FeatureBank<'a> {
             });
         }
         let indices = [
-            nd_index(&bands[3], &bands[1], qa).into_array(), // NIR−G
-            nd_index(&bands[4], &bands[1], qa).into_array(), // SWIR−G
-            nd_index(&bands[3], &bands[2], qa).into_array(), // NIR−R
-            nd_index(&bands[4], &bands[3], qa).into_array(), // SWIR−NIR
-            nd_index(&bands[0], &bands[2], qa).into_array(), // B−R
+            nd_index(&bands[3], &bands[1], cloud).into_array(), // NIR−G
+            nd_index(&bands[4], &bands[1], cloud).into_array(), // SWIR−G
+            nd_index(&bands[3], &bands[2], cloud).into_array(), // NIR−R
+            nd_index(&bands[4], &bands[3], cloud).into_array(), // SWIR−NIR
+            nd_index(&bands[0], &bands[2], cloud).into_array(), // B−R
         ];
         let band_std = std::array::from_fn(|b| local_std(bands[b].data()));
         let index_std = std::array::from_fn(|k| local_std(&indices[k]));
@@ -90,8 +90,8 @@ impl<'a> FeatureBank<'a> {
 /// en orden row-major. Retenido para pruebas y usos que necesiten la matriz
 /// completa; el clasificador usa [`FeatureBank`] directamente para evitar
 /// materializarla.
-pub fn compute_features(bands: &[Raster<f32>], qa: Option<&Raster<u16>>) -> Result<Array2<f32>> {
-    let bank = FeatureBank::build(bands, qa)?;
+pub fn compute_features(bands: &[Raster<f32>], cloud: Option<&Array2<bool>>) -> Result<Array2<f32>> {
+    let bank = FeatureBank::build(bands, cloud)?;
     let (rows, cols) = bank.dims();
     let mut out = Array2::<f32>::from_elem((rows * cols, N_FEATURES), f32::NAN);
     for r in 0..rows {

@@ -33,6 +33,9 @@ enum Command {
         /// Banda Green (1-based).
         #[arg(long, default_value_t = 2)]
         green_band: usize,
+        /// Banda NIR (1-based); usada por --coastsat-compat y el clasificador.
+        #[arg(long, default_value_t = 4)]
+        nir_band: usize,
         /// Banda SWIR1 (1-based).
         #[arg(long, default_value_t = 5)]
         swir1_band: usize,
@@ -55,6 +58,16 @@ enum Command {
         /// Área mínima (m²) para conservar un blob sand/water clasificado.
         #[arg(long, default_value_t = 500.0)]
         min_beach_area: f64,
+        /// Buffer de exclusión alrededor de nubes (m); 0 = off.
+        #[arg(long, default_value_t = 300.0)]
+        dist_clouds: f64,
+        /// Tamaño mínimo (px) de un blob de nube en la máscara; 0 = sin filtro.
+        #[arg(long, default_value_t = 40)]
+        cloud_min_size: usize,
+        /// EPSG de salida (4326 o UTM WGS84 326xx/327xx). Con 4326 el
+        /// GeoJSON es conforme a RFC 7946. Default: CRS nativo de la escena.
+        #[arg(long)]
+        output_epsg: Option<u32>,
         /// GeoJSON de salida.
         #[arg(short, long)]
         output: PathBuf,
@@ -354,6 +367,7 @@ fn main() -> anyhow::Result<()> {
             ms,
             mask,
             green_band,
+            nir_band,
             swir1_band,
             min_length,
             level,
@@ -361,10 +375,14 @@ fn main() -> anyhow::Result<()> {
             classify,
             coastsat_compat,
             min_beach_area,
+            dist_clouds,
+            cloud_min_size,
+            output_epsg,
             output,
         } => {
             let params = ExtractParams {
                 green_band,
+                nir_band,
                 swir1_band,
                 min_length_m: min_length,
                 level,
@@ -372,9 +390,16 @@ fn main() -> anyhow::Result<()> {
                 use_classifier: classify || coastsat_compat,
                 coastsat_compat,
                 min_beach_area_m2: min_beach_area,
+                dist_clouds_m: dist_clouds,
+                cloud_min_size_px: cloud_min_size,
             };
-            let shoreline = extract_shoreline(&ms, mask.as_deref(), &params)
+            let mut shoreline = extract_shoreline(&ms, mask.as_deref(), &params)
                 .with_context(|| format!("extracting shoreline from {}", ms.display()))?;
+            if let Some(epsg) = output_epsg {
+                shoreline
+                    .reproject(epsg)
+                    .with_context(|| format!("reproyectando a EPSG:{epsg}"))?;
+            }
 
             let scene = ms
                 .file_stem()

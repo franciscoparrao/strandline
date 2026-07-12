@@ -39,10 +39,10 @@ impl Classification {
 /// `morphology.remove_small_objects(..., connectivity=2)` (8-conectividad).
 pub fn classify_pixels(
     bands: &[Raster<f32>],
-    qa: Option<&Raster<u16>>,
+    cloud: Option<&Array2<bool>>,
     min_area_px: usize,
 ) -> Result<Classification> {
-    let bank = FeatureBank::build(bands, qa)?;
+    let bank = FeatureBank::build(bands, cloud)?;
     let (rows, cols) = bank.dims();
     let n = rows * cols;
 
@@ -83,8 +83,8 @@ pub fn classify_pixels(
     }
 
     if min_area_px > 1 {
-        remove_small_objects(&mut sand, min_area_px);
-        remove_small_objects(&mut water, min_area_px);
+        remove_small_objects(&mut sand, min_area_px, true);
+        remove_small_objects(&mut water, min_area_px, true);
     }
 
     Ok(Classification {
@@ -98,10 +98,12 @@ pub fn classify_pixels(
 /// `other`; ninguna máscara la recoge.
 const SKIP_LABEL: u8 = 255;
 
-/// Elimina componentes conexas (8-conectividad) menores a `min_size`
-/// píxeles, réplica de `skimage.morphology.remove_small_objects(...,
-/// connectivity=2)`.
-pub fn remove_small_objects(mask: &mut Array2<bool>, min_size: usize) {
+/// Elimina componentes conexas menores a `min_size` píxeles, réplica de
+/// `skimage.morphology.remove_small_objects`. `eight_connected = true`
+/// equivale a `connectivity=2` (diagonales conectan; lo que usa CoastSat
+/// para sand/water); `false` a `connectivity=1` (4-conectividad; lo que
+/// usa para la máscara de nubes).
+pub fn remove_small_objects(mask: &mut Array2<bool>, min_size: usize, eight_connected: bool) {
     let (rows, cols) = mask.dim();
     let mut visited = vec![false; rows * cols];
     let mut stack: Vec<(usize, usize)> = Vec::new();
@@ -121,6 +123,9 @@ pub fn remove_small_objects(mask: &mut Array2<bool>, min_size: usize) {
                 for dr in -1isize..=1 {
                     for dc in -1isize..=1 {
                         if dr == 0 && dc == 0 {
+                            continue;
+                        }
+                        if !eight_connected && dr != 0 && dc != 0 {
                             continue;
                         }
                         let nr = r as isize + dr;
@@ -162,7 +167,7 @@ mod tests {
                 mask[[r, c]] = true;
             }
         }
-        remove_small_objects(&mut mask, 5);
+        remove_small_objects(&mut mask, 5, true);
         assert!(!mask[[0, 0]]);
         assert!(!mask[[0, 1]]);
         assert!(mask[[6, 6]]);
@@ -175,7 +180,7 @@ mod tests {
         for i in 0..5 {
             mask[[i, i]] = true;
         }
-        remove_small_objects(&mut mask, 5);
+        remove_small_objects(&mut mask, 5, true);
         // con 8-conectividad la cadena entera cuenta como una sola
         // componente de tamaño 5 >= min_size, se conserva
         for i in 0..5 {

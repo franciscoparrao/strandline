@@ -26,7 +26,9 @@ fn extract_without_classifier_matches_golden() {
     .expect("extracción falló sobre el fixture");
 
     assert_eq!(shoreline.epsg, Some(32619));
-    assert_eq!(shoreline.lines.len(), 2, "n líneas cambió");
+    // 1 línea continua: la máscara de nubes limpia (blobs falsos de swash
+    // < 40 px removidos) des-fragmentó la costa que antes salía en 2 trozos
+    assert_eq!(shoreline.lines.len(), 1, "n líneas cambió");
     // umbral Otsu global + refinamiento por corredor (determinista)
     assert!(
         (shoreline.threshold - 0.2632).abs() < 5e-4,
@@ -57,7 +59,7 @@ fn extract_coastsat_compat_matches_golden() {
     )
     .expect("extracción compat falló sobre el fixture");
 
-    assert_eq!(shoreline.lines.len(), 2);
+    assert_eq!(shoreline.lines.len(), 1);
     // umbral del quirk (Otsu balanceado del NDWI, determinista sin RNG)
     assert!(
         (shoreline.threshold - (-0.1613)).abs() < 5e-4,
@@ -67,7 +69,7 @@ fn extract_coastsat_compat_matches_golden() {
     // clasificación golden (conteos exactos: el MLP y el filtro de área
     // son deterministas)
     let cls = shoreline.classification.expect("sin resumen de clasificación");
-    assert_eq!(cls.sand_px, 350);
+    assert_eq!(cls.sand_px, 354);
     assert_eq!(cls.whitewater_px, 39);
-    assert_eq!(cls.water_px, 4606);
+    assert_eq!(cls.water_px, 4610);
 }

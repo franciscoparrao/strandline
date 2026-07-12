@@ -305,3 +305,36 @@ cortes temporales.
 **Conclusión del hardening empírico**: el motor no tuvo ningún bug nuevo en
 una geometría/configuración completamente distinta; el único hallazgo fue
 del harness de validación. 46 tests (44 unitarios + 2 integración).
+
+---
+
+## ADENDA 2 (2026-07-12) — v0.2 completo: R2–R7 cerrados
+
+Todo el backlog de robustez de la PARTE 2 quedó implementado:
+
+- **R6**: variantes `Io`/`Parse`/`UnsupportedCrs` en `StrandlineError`;
+  `ShapeMismatch` ya no se usa como cajón de sastre.
+- **R3**: `nir_band` configurable en `ExtractParams` + `--nir-band`.
+- **R7**: semántica de línea-infinita documentada en `IntersectionSettings`.
+- **R2** (el grande): módulo `cloud` con máscara de nubes limpia
+  (`remove_small_objects` 4-conectividad, min 40 px — elimina las falsas
+  nubes de swash de CFMASK) usada por todo el pipeline, y buffer
+  `dist_clouds` (default 300 m, paridad CoastSat) con EDT euclídea exacta
+  (Felzenszwalb, O(n), validada contra fuerza bruta) que excluye puntos de
+  shoreline cerca de nubes partiendo las polilíneas. **Efecto medido en las
+  6 escenas del spike (modo compat)**: mediana 0.30 → **0.20 m**, media
+  7.71 → **2.93 m**, p90 2.71 → **1.20 m**, y la costa quedó
+  des-fragmentada (3–9 líneas/escena vs 9–37). El fixture de integración
+  ahora produce 1 línea continua en vez de 2 trozos.
+- **R4+R5**: módulo `proj` — transformación UTM↔WGS84 nativa (series de
+  Krüger/Karney orden n⁴, sin dependencia de PROJ), **validada contra
+  pyproj a <1 mm** en puntos del dominio del paper (incluye el caso GEE de
+  zona norte con northing negativo). Guardia que rechaza rasters en CRS
+  geográfico con error explícito. `Shoreline::reproject` + `--output-epsg`:
+  con 4326 el GeoJSON es RFC 7946 conforme; proyectado lleva el member
+  `crs` legacy. **Validación end-to-end**: extraer con `--output-epsg
+  32719` (reproyección 100% Rust) reproduce la mediana de 0.20 m del flujo
+  con pyproj.
+
+53 tests (51 unitarios + 2 integración), clippy limpio, paralelo y
+single-thread. Queda de la PARTE 3: fixture ✔; pendientes proptest/fuzzing.
