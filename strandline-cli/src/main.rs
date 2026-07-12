@@ -5,6 +5,7 @@ use std::path::PathBuf;
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
+use strandline_core::rates::{compute_rates, decimal_year_from_mjd, despike};
 use strandline_core::tide::{self, harmonic::TidePredictor, TideCorrection};
 use strandline_core::transects::{
     compute_intersections, generate_transects, transect_name, IntersectionSettings, Transect,
@@ -120,6 +121,100 @@ enum Command {
         #[arg(short, long)]
         output: PathBuf,
     },
+    /// Calcula tasas de cambio costero DSAS (NSM/SCE/EPR/LRR/WLR) por
+    /// transecto a partir de las intersecciones cross-shore.
+    Rates {
+        /// CSV de intersecciones (transect, shoreline_id, chainage_m) —
+        /// típicamente la salida de `intersect`.
+        #[arg(long)]
+        intersections: PathBuf,
+        /// CSV con fecha (y peso opcional) por shoreline
+        /// (columnas: shoreline_id, date[, weight]).
+        #[arg(long)]
+        dates: PathBuf,
+        /// Mínimo de observaciones válidas para calcular tasas.
+        #[arg(long, default_value_t = 10)]
+        min_valid: usize,
+        /// Salto máximo (m) entre observaciones consecutivas antes de aplicar
+        /// despiking; 0 = desactivado.
+        #[arg(long, default_value_t = 0.0)]
+        despike_max_change: f64,
+        /// Mínimo de observaciones válidas para aplicar despiking.
+        #[arg(long, default_value_t = 30)]
+        despike_min_valid: usize,
+        /// CSV opcional de corrección mareal por shoreline
+        /// (columnas: shoreline_id, correction_m); se resta del chainage
+        /// antes del despiking y las tasas (Vos et al. 2019).
+        #[arg(long)]
+        tide_correction: Option<PathBuf>,
+        /// CSV de salida con las tasas por transecto.
+        #[arg(short, long)]
+        output: PathBuf,
+    },
+}
+
+/// Lee un CSV `shoreline_id, correction_m` a un mapa.
+fn read_tide_correction(
+    path: &PathBuf,
+) -> anyhow::Result<std::collections::HashMap<String, f64>> {
+    let text = std::fs::read_to_string(path)
+        .with_context(|| format!("leyendo corrección mareal {}", path.display()))?;
+    let mut lines = text.lines().filter(|l| !l.trim().is_empty());
+    let header: Vec<String> = lines
+        .next()
+        .unwrap_or_default()
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .collect();
+    let idi = header.iter().position(|c| c == "shoreline_id").context("falta 'shoreline_id'")?;
+    let ci = header.iter().position(|c| c == "correction_m").context("falta 'correction_m'")?;
+    let mut map = std::collections::HashMap::new();
+    for l in lines {
+        let f: Vec<&str> = l.split(',').map(str::trim).collect();
+        if f.len() <= idi.max(ci) {
+            continue;
+        }
+        if let Ok(v) = f[ci].parse::<f64>() {
+            map.insert(f[idi].to_string(), v);
+        }
+    }
+    Ok(map)
+}
+
+/// Fecha (año decimal) y peso de una shoreline, indexado por `shoreline_id`.
+type DateWeights = std::collections::HashMap<String, (f64, f64)>;
+
+/// Lee `shoreline_id, date[, weight]` y devuelve año decimal + peso por id.
+fn read_date_weights(path: &PathBuf) -> anyhow::Result<DateWeights> {
+    let text = std::fs::read_to_string(path)
+        .with_context(|| format!("leyendo fechas {}", path.display()))?;
+    let mut lines = text.lines().filter(|l| !l.trim().is_empty());
+    let header: Vec<String> = lines
+        .next()
+        .unwrap_or_default()
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .collect();
+    let idi = header.iter().position(|c| c == "shoreline_id").context("falta 'shoreline_id'")?;
+    let di = header.iter().position(|c| c == "date").context("falta 'date'")?;
+    let wi = header.iter().position(|c| c == "weight");
+
+    let mut map = DateWeights::new();
+    for l in lines {
+        let f: Vec<&str> = l.split(',').map(str::trim).collect();
+        if f.len() <= idi.max(di) {
+            continue;
+        }
+        let Some(mjd) = tide::parse_timestamp(f[di]) else {
+            continue;
+        };
+        let weight = wi
+            .and_then(|i| f.get(i))
+            .and_then(|s| s.parse::<f64>().ok())
+            .unwrap_or(1.0);
+        map.insert(f[idi].to_string(), (decimal_year_from_mjd(mjd), weight));
+    }
+    Ok(map)
 }
 
 /// Lee transectos desde el CSV que escribe `write_transects_csv`.
@@ -419,6 +514,79 @@ fn main() -> anyhow::Result<()> {
                 elapsed,
                 output.display()
             );
+        }
+        Command::Rates {
+            intersections,
+            dates,
+            min_valid,
+            despike_max_change,
+            despike_min_valid,
+            tide_correction,
+            output,
+        } => {
+            let date_w = read_date_weights(&dates)?;
+            let tide_corr = match &tide_correction {
+                Some(p) => read_tide_correction(p)?,
+                None => std::collections::HashMap::new(),
+            };
+            // agrupar chainages por transecto, preservando (t_year, chainage, weight)
+            let text = std::fs::read_to_string(&intersections)
+                .with_context(|| format!("leyendo intersecciones {}", intersections.display()))?;
+            let mut lines = text.lines().filter(|l| !l.trim().is_empty());
+            lines.next(); // header: transect,shoreline_id,chainage_m
+            let mut by_transect: std::collections::BTreeMap<String, Vec<(f64, f64, f64)>> =
+                std::collections::BTreeMap::new();
+            for l in lines {
+                let f: Vec<&str> = l.split(',').map(str::trim).collect();
+                if f.len() < 3 {
+                    continue;
+                }
+                let (Some(&(t_year, weight)), Ok(chainage)) =
+                    (date_w.get(f[1]), f[2].parse::<f64>())
+                else {
+                    continue;
+                };
+                // corrección mareal: corrected = raw − correction (Vos et al.)
+                let corrected = chainage - tide_corr.get(f[1]).copied().unwrap_or(0.0);
+                by_transect
+                    .entry(f[0].to_string())
+                    .or_default()
+                    .push((t_year, corrected, weight));
+            }
+
+            let mut out = String::from(
+                "transect,n_valid,years,NSM_m,SCE_m,EPR_m_yr,LRR_m_yr,LRR_r2,LRR_ci95,WLR_m_yr,WLR_ci95\n",
+            );
+            let mut n_out = 0usize;
+            for (tname, mut obs) in by_transect {
+                obs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+                let t: Vec<f64> = obs.iter().map(|o| o.0).collect();
+                let mut y: Vec<f64> = obs.iter().map(|o| o.1).collect();
+                let w: Vec<f64> = obs.iter().map(|o| o.2).collect();
+                if despike_max_change > 0.0 {
+                    y = despike(&y, despike_max_change, despike_min_valid);
+                }
+                if let Some(r) = compute_rates(&t, &y, Some(&w), min_valid) {
+                    n_out += 1;
+                    out.push_str(&format!(
+                        "{},{},{:.4},{:.4},{:.4},{:.4},{:.6},{:.6},{:.6},{:.6},{:.6}\n",
+                        tname,
+                        r.n_valid,
+                        r.years,
+                        r.nsm,
+                        r.sce,
+                        r.epr,
+                        r.lrr,
+                        r.lrr_r2,
+                        r.lrr_ci95,
+                        r.wlr,
+                        r.wlr_ci95
+                    ));
+                }
+            }
+            std::fs::write(&output, out)
+                .with_context(|| format!("escribiendo {}", output.display()))?;
+            eprintln!("{} transectos con tasas -> {}", n_out, output.display());
         }
     }
     Ok(())

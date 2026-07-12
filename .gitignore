@@ -18,6 +18,8 @@
 # Artefactos de validación regenerables (shorelines sintéticas, salidas)
 /spike/transects/shorelines_synth.csv
 /spike/transects/cross_rust.csv
+/spike/rates/intersections.csv
+/spike/rates/intersections_raw.csv
 
 # Temporales
 *.pyc

@@ -258,6 +258,32 @@ Seminario MONCOSTA (U. Mayor / Centro Hémera, Idania Briceño) — bitácora en
     central del paper software+benchmark.
   - CLI: `strandline transects` (genera) y `strandline intersect` (cruza).
   - 31 tests totales, clippy limpio, pasa en paralelo y single-thread.
-  - **Próximo V1**: item 8 (tasas DSAS: EPR/LRR/WLR/NSM/SCE con
-    incertidumbre) — consume el `cross_distance` de la intersección, aquí se
-    conecta también `tide::correct_chainage`.
+
+- **2026-07-11 (noche)**: **Tasas DSAS (scope item 8) implementadas**.
+  Módulo `strandline-core::rates`:
+  - `compute_rates`: NSM, SCE, EPR, LRR (regresión ordinaria con R² e IC95
+    réplica de `scipy.stats.linregress`), WLR (mínimos cuadrados ponderados,
+    sistema 2×2 cerrado, con IC95). Pesos por observación configurables
+    (default del paper: 1/incertidumbre por satélite).
+  - `despike`: despiking iterativo (réplica del paper, salto máximo
+    configurable) que remueve picos/valles aislados.
+  - `decimal_year_from_mjd`: conversión con la convención del paper (día
+    calendario, 365.2425 días/año).
+  - **Validación exacta contra el `rates_df` del pickle** (179 transectos):
+    NSM/SCE/EPR a ~5e-5 (redondeo del CSV), LRR/R²/IC95 a ~5e-7, **WLR e IC95
+    a ~1e-5**. El WLR coincidiendo confirma que la asignación de pesos por
+    fecha (corte L5→L8 en 2013-04) reproduce los pesos por satélite del paper.
+  - **Pipeline completo raw→despike→tasas**: reproduce el `rates_df` exacto
+    (los 179 transectos, mismos outliers removidos por el despiking).
+  - **Integración marea↔tasas validada exacto**: el flujo intersección →
+    `tide::correct_chainage` → tasas reproduce el `rates_corrected` del paper
+    (178 transectos) a LRR ~5e-7, WLR ~1.4e-5, NSM ~5e-5. Cierra el lazo con
+    la corrección mareal del item 6.
+  - CLI: `strandline rates` (con `--despike-max-change` y `--tide-correction`).
+  - Hallazgo honesto: la corrección mareal no reduce el SCE agregado en Viña
+    (~500 m, dominado por intersecciones múltiples, no por la marea de ±15 m);
+    el efecto mareal se ve en las tasas por transecto, no en el envelope.
+  - 37 tests totales, clippy limpio, pasa en paralelo y single-thread.
+  - **Pipeline V1 completo de extremo a extremo**: GeoTIFF → extract →
+    classify (MLP) → transects → intersect → (tide correct) → rates. Falta
+    scope item 9 (filtros QC: los 5 criterios calibrados |LRR|/SCE/span/n/R²).

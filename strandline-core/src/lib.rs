@@ -17,12 +17,14 @@ pub mod features;
 pub mod index;
 pub mod mlp;
 pub mod otsu;
+pub mod rates;
 pub mod shoreline;
 pub mod tide;
 pub mod transects;
 
 pub use classify::Classification;
 pub use error::StrandlineError;
+pub use rates::{compute_rates, Rates};
 pub use shoreline::{extract_shoreline, ExtractParams, Shoreline};
 pub use tide::{correct_chainage, TideCorrection};
 pub use transects::{
