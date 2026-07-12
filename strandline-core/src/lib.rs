@@ -22,6 +22,8 @@ pub mod proj;
 pub mod qc;
 pub mod rates;
 pub mod shoreline;
+pub mod slope;
+pub mod subpixel;
 pub mod tide;
 pub mod transects;
 
@@ -31,6 +33,8 @@ pub use proj::transform_points;
 pub use qc::{classify, evaluate as qc_evaluate, ChangeClass, QcCriteria, QcReason};
 pub use rates::{compute_rates, Rates};
 pub use shoreline::{extract_shoreline, ExtractParams, Shoreline};
+pub use slope::{estimate_beach_slope, SlopeEstimate, SlopeSettings};
+pub use subpixel::{fit_profile, fit_profiles, ProfileFit, ProfileSettings};
 pub use tide::{correct_chainage, TideCorrection};
 pub use transects::{
     compute_intersections, generate_transects, IntersectionSettings, Transect,

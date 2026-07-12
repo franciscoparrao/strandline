@@ -338,3 +338,61 @@ Todo el backlog de robustez de la PARTE 2 quedó implementado:
 
 53 tests (51 unitarios + 2 integración), clippy limpio, paralelo y
 single-thread. Queda de la PARTE 3: fixture ✔; pendientes proptest/fuzzing.
+
+---
+
+## ADENDA 3 (2026-07-12) — v0.3 SOTA-core: S1 + S4 + S5a implementados
+
+### S1 — Extracción subpixel por ajuste de perfil (`subpixel`)
+Muestreo bilineal del MNDWI a lo largo de cada transecto + ajuste
+Levenberg-Marquardt del modelo de borde `a + b·tanh((x−x₀)/w)`; la línea de
+agua es el cruce del modelo con el umbral, con σ analítica y sensibilidad
+al umbral (`∂x/∂t = w/b`). CLI: `strandline profile`.
+
+**Evidencia (experimento sintético con la maquinaria real de producción en
+ambos brazos, transecto diagonal, frontera barrida a través de 1 píxel,
+ruido σ=0.08, 250 casos)**:
+
+| Flujo | RMSE | Sesgo |
+|-------|------|-------|
+| contorno + intersección (CoastSat/DSAS) | 1.61 m | **−0.78 m** |
+| **ajuste de perfil (S1)** | **0.53 m** | +0.02 m |
+
+3× menos RMSE y sesgo eliminado. En la escena real de Viña:
+|perfil−contorno| mediana 1.15 m — exactamente el orden del sesgo+ruido que
+el sintético atribuye al contorno. (|contorno−CoastSat| = 0.02 m es réplica
+del mismo algoritmo, no exactitud.)
+
+**Hallazgo E2**: el método de perfil **expone transectos torcidos** que la
+intersección por franja tolera en silencio — con los transectos del paper
+(línea base zigzag por binning multivaluado) solo 18/250 perfiles cruzaban;
+con el flujo auto-referenciado (extract → línea base propia →
+`transects --smooth-window` → profile), **69/69**. Se agregó
+`smooth_polyline` (media móvil por longitud de arco) al generador.
+
+### S4 — Pendiente de playa satelital (`slope`)
+Lomb-Scargle nativo + barrido de pendientes candidatas minimizando la
+energía espectral mareal residual (principio de Vos et al. 2020 GRL).
+CLI: `strandline slope`.
+
+**Validación**: recupera el slope verdadero a ±0.01 en sintéticos con
+muestreo Landsat + marea armónica propia + tendencia + ruido 3 m (test), y
+a un paso de grilla (0.08 → 0.0825, 99% de energía mareal removida) sobre
+las **770 fechas reales de Viña con la marea GOT5.5 real**.
+
+**Hallazgo E3 (límite de aplicabilidad, cuantificado)**: con ruido
+posicional ≥5 m el estimador se sesga hacia pendientes menores (5 m→0.065,
+8 m→0.060, 12 m→0.053 para slope_true 0.08), y en los datos reales de Viña
+(micro-tidal, señal mareal horizontal ~±3.7 m vs scatter Landsat ~10 m) los
+óptimos caen en los bordes del rango → **no identificable con solo-Landsat
+en micro-tidal**, consistente con la advertencia de Vos et al. (rango
+mareal ≥~1 m). Aplicable con Sentinel-2 (S6) o en sitios macro-tidales
+(Chiloé). Resultado de paper por sí mismo.
+
+### S5a — σ por punto
+Integrada en `profile`: `σ² = σ_fit² + σ_georef² + (∂x/∂t·σ_t)²` con
+`σ_fit` de la covarianza del ajuste y `∂x/∂t` del propio modelo de borde
+(`--georef-rmse`, `--threshold-sigma`). Los pesos reales para el WLR salen
+de aquí (columna `weight` de `rates`).
+
+60 tests (57 unitarios + 3 de integración), clippy limpio, ambos modos.

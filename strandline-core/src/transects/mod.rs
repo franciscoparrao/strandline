@@ -143,6 +143,40 @@ pub fn generate_transects(
     transects
 }
 
+/// Suaviza una polilínea por media móvil sobre longitud de arco: cada
+/// punto se reemplaza por el promedio de los puntos originales dentro de
+/// `±window_m/2` de distancia a lo largo de la línea.
+///
+/// Una línea base ruidosa (p. ej. una referencia construida por binning
+/// por northing sobre una costa multivaluada) produce transectos con
+/// direcciones erráticas que la intersección por franja tolera pero el
+/// ajuste de perfil ([`crate::subpixel`]) no: un transecto casi paralelo a
+/// la costa nunca cruza la línea de agua dentro de su largo. Suavizar la
+/// línea base primero produce normales genuinamente shore-normal.
+pub fn smooth_polyline(line: &[(f64, f64)], window_m: f64) -> Vec<(f64, f64)> {
+    if line.len() < 3 || window_m <= 0.0 {
+        return line.to_vec();
+    }
+    let mut cum = vec![0.0f64];
+    for w in line.windows(2) {
+        cum.push(cum.last().unwrap() + dist(w[0], w[1]));
+    }
+    let half = window_m / 2.0;
+    let mut out = Vec::with_capacity(line.len());
+    for i in 0..line.len() {
+        let (mut sx, mut sy, mut n) = (0.0, 0.0, 0usize);
+        for j in 0..line.len() {
+            if (cum[j] - cum[i]).abs() <= half {
+                sx += line[j].0;
+                sy += line[j].1;
+                n += 1;
+            }
+        }
+        out.push((sx / n as f64, sy / n as f64));
+    }
+    out
+}
+
 /// Nombre canónico de un transecto por índice (`T001`, `T002`, …), como en
 /// el pipeline de referencia.
 pub fn transect_name(index: usize) -> String {

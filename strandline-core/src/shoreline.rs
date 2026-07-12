@@ -173,6 +173,156 @@ fn values_at(img: &Raster<f32>, mask: &Array2<bool>) -> Vec<f32> {
     out
 }
 
+/// Nivel de umbral seleccionado: `raw` es el valor en la convención del
+/// modo (para `coastsat_compat` es el Otsu del NDWI con signo CoastSat,
+/// negativo), `textbook` el nivel equivalente sobre el MNDWI textbook
+/// (G−SWIR) que usa el contorneo/perfil.
+struct LevelSelection {
+    raw: f32,
+    textbook: f32,
+}
+
+/// Selecciona el umbral según el modo (fijo / compat / clasificador / Otsu
+/// global refinado), sin contornear. Ver `ExtractParams`.
+fn select_level(
+    bands: &[Raster<f32>],
+    green: &Raster<f32>,
+    ndwi: &Raster<f32>,
+    cloud_mask: Option<&Array2<bool>>,
+    classification: &Option<Classification>,
+    params: &ExtractParams,
+) -> Result<LevelSelection> {
+    if let Some(l) = params.level {
+        return Ok(LevelSelection { raw: l, textbook: l });
+    }
+    match classification {
+        Some(cls) if params.coastsat_compat => {
+            // El quirk de CoastSat: el umbral que contornea el MNDWI
+            // (signo CoastSat, SWIR−G) en realidad se calcula sobre el
+            // NDWI (NIR−G). Ver spike/RESULTS.md. En textbook el nivel
+            // equivalente es el negativo.
+            let nir = &bands[params.nir_band - 1];
+            let ndwi_cs = nd_index(nir, green, cloud_mask);
+            let water_vals = values_at(&ndwi_cs, &cls.water);
+            let sand_vals = values_at(&ndwi_cs, &cls.sand);
+            let t = balanced_otsu(&water_vals, &sand_vals)?;
+            Ok(LevelSelection { raw: t, textbook: -t })
+        }
+        Some(cls) => {
+            let water_vals = values_at(ndwi, &cls.water);
+            let sand_vals = values_at(ndwi, &cls.sand);
+            let t = balanced_otsu(&water_vals, &sand_vals)?;
+            Ok(LevelSelection { raw: t, textbook: t })
+        }
+        None => {
+            let global = otsu_threshold(ndwi.data().iter().cloned())?;
+            let t = if params.refine_radius_px == 0 {
+                global
+            } else {
+                refine_threshold(ndwi, global, params.refine_radius_px).unwrap_or(global)
+            };
+            Ok(LevelSelection { raw: t, textbook: t })
+        }
+    }
+}
+
+/// Escena preparada para la extracción por ajuste de perfil
+/// ([`crate::subpixel`]): MNDWI textbook con máscara de nubes aplicada y
+/// nivel a cruzar, seleccionados con la misma lógica que
+/// [`extract_shoreline`].
+pub struct PreparedScene {
+    /// MNDWI textbook (G−SWIR) con nubes/inválidos en NaN.
+    pub mndwi: Raster<f32>,
+    /// Nivel a cruzar sobre `mndwi`.
+    pub level_textbook: f32,
+    /// Umbral en la convención del modo (reporting).
+    pub raw_threshold: f32,
+    /// Resumen de clasificación, si el modo la usó.
+    pub classification: Option<ClassificationSummary>,
+    /// EPSG del CRS nativo, si el raster lo declara.
+    pub epsg: Option<u32>,
+}
+
+/// Prepara una escena para la extracción por perfil ([`crate::subpixel`]):
+/// lee las bandas, construye la máscara de nubes limpia, calcula el MNDWI
+/// y selecciona el umbral con los mismos modos que [`extract_shoreline`].
+pub fn prepare_scene(
+    ms_path: &Path,
+    qa_path: Option<&Path>,
+    params: &ExtractParams,
+) -> Result<PreparedScene> {
+    let bands: Vec<Raster<f32>> = read_geotiff_bands(ms_path)?;
+    let n = bands.len();
+    for b in [params.green_band, params.nir_band, params.swir1_band] {
+        if b == 0 || b > n {
+            return Err(StrandlineError::BandOutOfRange {
+                requested: b,
+                available: n,
+            });
+        }
+    }
+    let use_classifier = params.use_classifier || params.coastsat_compat;
+    if use_classifier && n < 5 {
+        return Err(StrandlineError::BandOutOfRange {
+            requested: 5,
+            available: n,
+        });
+    }
+    let green = &bands[params.green_band - 1];
+    let swir1 = &bands[params.swir1_band - 1];
+    if let Some(crs) = green.crs() {
+        if crs.is_geographic() {
+            return Err(StrandlineError::UnsupportedCrs(format!(
+                "raster en CRS geográfico ({}); reproyecta a UTM antes de extraer",
+                crs.identifier()
+            )));
+        }
+    }
+    let qa: Option<Raster<u16>> = match qa_path {
+        Some(p) => Some(surtgis_core::io::read_geotiff(p, Some(0))?),
+        None => None,
+    };
+    if let Some(q) = &qa {
+        if q.shape() != green.shape() {
+            return Err(StrandlineError::ShapeMismatch(format!(
+                "QA {:?} vs ms {:?}",
+                q.shape(),
+                green.shape()
+            )));
+        }
+    }
+    let cloud_mask = qa
+        .as_ref()
+        .map(|q| cloud_mask_from_qa(q, params.cloud_min_size_px));
+    let ndwi = mndwi(green, swir1, cloud_mask.as_ref());
+
+    let classification: Option<Classification> = if use_classifier {
+        let px_area = green.cell_size().powi(2);
+        let min_area_px = ((params.min_beach_area_m2 / px_area).round() as usize).max(1);
+        Some(classify_pixels(&bands, cloud_mask.as_ref(), min_area_px)?)
+    } else {
+        None
+    };
+    let level = select_level(&bands, green, &ndwi, cloud_mask.as_ref(), &classification, params)?;
+
+    let classification_summary = classification.as_ref().map(|cls| {
+        let (sand_px, whitewater_px, water_px) = cls.counts();
+        ClassificationSummary {
+            sand_px,
+            whitewater_px,
+            water_px,
+        }
+    });
+    let epsg = green.crs().and_then(|c| c.epsg());
+    Ok(PreparedScene {
+        mndwi: ndwi,
+        level_textbook: level.textbook,
+        raw_threshold: level.raw,
+        classification: classification_summary,
+        epsg,
+    })
+}
+
 /// Extrae la shoreline de un GeoTIFF multiespectral.
 ///
 /// `qa_path`: máscara QA_PIXEL opcional (Landsat C02) para excluir nubes.
@@ -248,38 +398,13 @@ pub fn extract_shoreline(
     let t_classify = t_classify_start.elapsed().as_secs_f64() * 1000.0;
 
     let t2 = Instant::now();
-    let (threshold, contours) = match params.level {
-        Some(l) => (l, find_contours(ndwi.data().view(), l as f64)),
-        None => match &classification {
-            Some(cls) if params.coastsat_compat => {
-                // El quirk de CoastSat: el umbral que contornea el MNDWI
-                // (signo CoastSat, SWIR−G) en realidad se calcula sobre el
-                // NDWI (NIR−G). Ver spike/RESULTS.md.
-                let nir = &bands[params.nir_band - 1];
-                let ndwi_cs = nd_index(nir, green, cloud_mask.as_ref());
-                let mwi_cs = nd_index(swir1, green, cloud_mask.as_ref());
-                let water_vals = values_at(&ndwi_cs, &cls.water);
-                let sand_vals = values_at(&ndwi_cs, &cls.sand);
-                let t = balanced_otsu(&water_vals, &sand_vals)?;
-                (t, find_contours(mwi_cs.data().view(), t as f64))
-            }
-            Some(cls) => {
-                let water_vals = values_at(&ndwi, &cls.water);
-                let sand_vals = values_at(&ndwi, &cls.sand);
-                let t = balanced_otsu(&water_vals, &sand_vals)?;
-                (t, find_contours(ndwi.data().view(), t as f64))
-            }
-            None => {
-                let global = otsu_threshold(ndwi.data().iter().cloned())?;
-                let t = if params.refine_radius_px == 0 {
-                    global
-                } else {
-                    refine_threshold(&ndwi, global, params.refine_radius_px).unwrap_or(global)
-                };
-                (t, find_contours(ndwi.data().view(), t as f64))
-            }
-        },
-    };
+    let level = select_level(&bands, green, &ndwi, cloud_mask.as_ref(), &classification, params)?;
+    // se contornea siempre el MNDWI textbook al nivel textbook; en modo
+    // compat es matemáticamente idéntico a contornear el MWI con signo
+    // CoastSat al umbral del quirk (la negación conmuta con la
+    // interpolación lineal de los cruces)
+    let threshold = level.raw;
+    let contours = find_contours(ndwi.data().view(), level.textbook as f64);
     let t_otsu = t2.elapsed().as_secs_f64() * 1000.0;
 
     let t3 = Instant::now();

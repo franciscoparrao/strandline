@@ -9,8 +9,12 @@ use strandline_core::qc::{self, QcCriteria};
 use strandline_core::rates::{compute_rates, decimal_year_from_mjd, despike};
 use strandline_core::tide::{self, harmonic::TidePredictor, TideCorrection};
 use strandline_core::transects::{
-    compute_intersections, generate_transects, transect_name, IntersectionSettings, Transect,
+    compute_intersections, generate_transects, smooth_polyline, transect_name,
+    IntersectionSettings, Transect,
 };
+use strandline_core::shoreline::prepare_scene;
+use strandline_core::slope::{estimate_beach_slope, SlopeSettings};
+use strandline_core::subpixel::{fit_profiles, ProfileSettings};
 use strandline_core::{extract_shoreline, ExtractParams};
 
 #[derive(Parser)]
@@ -72,6 +76,46 @@ enum Command {
         #[arg(short, long)]
         output: PathBuf,
     },
+    /// Extrae la posición subpixel de la línea de agua por ajuste de
+    /// perfil sigmoide en cada transecto (S1: menor varianza y sin sesgo
+    /// de grilla vs contorno+intersección) con σ por punto (S5a).
+    Profile {
+        /// GeoTIFF multiespectral de entrada (bandas B,G,R,NIR,SWIR1).
+        #[arg(long)]
+        ms: PathBuf,
+        /// Máscara QA_PIXEL opcional (Landsat Collection 2).
+        #[arg(long)]
+        mask: Option<PathBuf>,
+        /// CSV de transectos (name, origin_e, origin_n, end_e, end_n) en el
+        /// CRS nativo de la escena.
+        #[arg(long)]
+        transects: PathBuf,
+        /// Umbral MNDWI fijo (default: mismo modo de umbral que `extract`).
+        #[arg(long)]
+        level: Option<f32>,
+        /// Usa el clasificador de píxeles para el umbral.
+        #[arg(long)]
+        classify: bool,
+        /// Replica el umbral del quirk de CoastSat (implica --classify).
+        #[arg(long)]
+        coastsat_compat: bool,
+        /// Paso de muestreo del perfil (m).
+        #[arg(long, default_value_t = 5.0)]
+        step: f64,
+        /// Semiancho de la ventana de ajuste (m).
+        #[arg(long, default_value_t = 60.0)]
+        window: f64,
+        /// RMSE de georreferenciación (m) para la σ combinada.
+        #[arg(long, default_value_t = 5.0)]
+        georef_rmse: f64,
+        /// Incertidumbre 1σ del umbral (unidades MNDWI) para la σ combinada.
+        #[arg(long, default_value_t = 0.0)]
+        threshold_sigma: f64,
+        /// CSV de salida (transect, chainage_m, x, y, sigma_fit_m,
+        /// sigma_total_m, dx_dthreshold, rmse, n).
+        #[arg(short, long)]
+        output: PathBuf,
+    },
     /// Predice la marea (síntesis armónica nativa) para las fechas dadas y,
     /// opcionalmente, calcula la corrección horizontal de Vos et al. (2019).
     Tide {
@@ -115,6 +159,11 @@ enum Command {
         /// Componente Norte de la dirección aproximada hacia el mar.
         #[arg(long, default_value_t = 0.0)]
         seaward_n: f64,
+        /// Ventana de suavizado de la línea base por longitud de arco (m);
+        /// 0 = sin suavizar. Recomendado ≥ 300 para líneas base ruidosas
+        /// si los transectos alimentarán `profile`.
+        #[arg(long, default_value_t = 0.0)]
+        smooth_window: f64,
         /// CSV de salida (name, origin_e, origin_n, end_e, end_n).
         #[arg(short, long)]
         output: PathBuf,
@@ -132,6 +181,25 @@ enum Command {
         #[arg(long, default_value_t = 25.0)]
         along_dist: f64,
         /// CSV de salida en formato largo (transect, shoreline_id, chainage_m).
+        #[arg(short, long)]
+        output: PathBuf,
+    },
+    /// Estima la pendiente de playa por transecto desde las propias series
+    /// satelitales (S4: minimiza la energía mareal residual, Vos et al. 2020).
+    Slope {
+        /// CSV de intersecciones (transect, shoreline_id, chainage_m).
+        #[arg(long)]
+        intersections: PathBuf,
+        /// CSV de fechas por shoreline (shoreline_id, date).
+        #[arg(long)]
+        dates: PathBuf,
+        /// CSV de marea por shoreline (shoreline_id, tide_m).
+        #[arg(long)]
+        tides: PathBuf,
+        /// Mínimo de observaciones válidas por transecto.
+        #[arg(long, default_value_t = 30)]
+        min_valid: usize,
+        /// CSV de salida (transect, slope, peak_freq_cpd, energy_ratio, n).
         #[arg(short, long)]
         output: PathBuf,
     },
@@ -428,6 +496,77 @@ fn main() -> anyhow::Result<()> {
                 t_read + t_mndwi + t_classify + t_otsu + t_contour
             );
         }
+        Command::Profile {
+            ms,
+            mask,
+            transects,
+            level,
+            classify,
+            coastsat_compat,
+            step,
+            window,
+            georef_rmse,
+            threshold_sigma,
+            output,
+        } => {
+            let params = ExtractParams {
+                level,
+                use_classifier: classify || coastsat_compat,
+                coastsat_compat,
+                ..Default::default()
+            };
+            let scene = prepare_scene(&ms, mask.as_deref(), &params)
+                .with_context(|| format!("preparando escena {}", ms.display()))?;
+            let ts = read_transects_csv(&transects)?;
+            anyhow::ensure!(!ts.is_empty(), "no hay transectos");
+
+            let settings = ProfileSettings {
+                step_m: step,
+                window_m: window,
+                ..Default::default()
+            };
+            let t0 = std::time::Instant::now();
+            let fits = fit_profiles(&scene.mndwi, &ts, scene.level_textbook as f64, &settings);
+            let elapsed = t0.elapsed().as_secs_f64();
+
+            let mut out = String::from(
+                "transect,chainage_m,x,y,sigma_fit_m,sigma_total_m,dx_dthreshold,rmse,n\n",
+            );
+            let mut n_ok = 0usize;
+            for (i, fit) in fits.iter().enumerate() {
+                if let Some(f) = fit {
+                    n_ok += 1;
+                    // S5a: σ² = σ_fit² + σ_georef² + (∂x/∂t · σ_t)²
+                    let sigma_total = (f.sigma_m.powi(2)
+                        + georef_rmse.powi(2)
+                        + (f.dx_dthreshold * threshold_sigma).powi(2))
+                    .sqrt();
+                    out.push_str(&format!(
+                        "{},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.6},{}\n",
+                        transect_name(i),
+                        f.chainage_m,
+                        f.world.0,
+                        f.world.1,
+                        f.sigma_m,
+                        sigma_total,
+                        f.dx_dthreshold,
+                        f.rmse,
+                        f.n_samples
+                    ));
+                }
+            }
+            std::fs::write(&output, out)
+                .with_context(|| format!("escribiendo {}", output.display()))?;
+            eprintln!(
+                "{}/{} transectos con cruce (umbral = {:.4}, nivel textbook = {:.4}) en {:.3} s -> {}",
+                n_ok,
+                ts.len(),
+                scene.raw_threshold,
+                scene.level_textbook,
+                elapsed,
+                output.display()
+            );
+        }
         Command::Tide {
             constituents,
             dates,
@@ -504,10 +643,14 @@ fn main() -> anyhow::Result<()> {
             length,
             seaward_e,
             seaward_n,
+            smooth_window,
             output,
         } => {
-            let line = read_baseline(&baseline)?;
+            let mut line = read_baseline(&baseline)?;
             anyhow::ensure!(line.len() >= 2, "la línea base necesita ≥2 puntos");
+            if smooth_window > 0.0 {
+                line = smooth_polyline(&line, smooth_window);
+            }
             let transects = generate_transects(&line, spacing, length, (seaward_e, seaward_n));
             write_transects_csv(&transects, &output)?;
             eprintln!(
@@ -557,6 +700,94 @@ fn main() -> anyhow::Result<()> {
                 sls.len(),
                 n_valid,
                 elapsed,
+                output.display()
+            );
+        }
+        Command::Slope {
+            intersections,
+            dates,
+            tides,
+            min_valid,
+            output,
+        } => {
+            // fechas (MJD) por shoreline
+            let date_w = read_date_weights(&dates)?;
+            // marea por shoreline (reusa el lector de corrección: col tide_m)
+            let text = std::fs::read_to_string(&tides)
+                .with_context(|| format!("leyendo mareas {}", tides.display()))?;
+            let mut lines = text.lines().filter(|l| !l.trim().is_empty());
+            let header: Vec<String> = lines
+                .next()
+                .unwrap_or_default()
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .collect();
+            let idi = header.iter().position(|c| c == "shoreline_id").context("falta 'shoreline_id'")?;
+            let ti = header.iter().position(|c| c == "tide_m").context("falta 'tide_m'")?;
+            let mut tide_by_id = std::collections::HashMap::new();
+            for l in lines {
+                let f: Vec<&str> = l.split(',').map(str::trim).collect();
+                if f.len() > idi.max(ti) {
+                    if let Ok(v) = f[ti].parse::<f64>() {
+                        tide_by_id.insert(f[idi].to_string(), v);
+                    }
+                }
+            }
+
+            // NOTA: read_date_weights devuelve años decimales; para el
+            // análisis espectral se necesitan DÍAS → año·365.2425 sirve
+            // como eje temporal consistente (unidades de días).
+            let text = std::fs::read_to_string(&intersections)
+                .with_context(|| format!("leyendo intersecciones {}", intersections.display()))?;
+            let mut lines = text.lines().filter(|l| !l.trim().is_empty());
+            lines.next();
+            let mut by_transect: std::collections::BTreeMap<String, Vec<(f64, f64, f64)>> =
+                std::collections::BTreeMap::new();
+            for l in lines {
+                let f: Vec<&str> = l.split(',').map(str::trim).collect();
+                if f.len() < 3 {
+                    continue;
+                }
+                let (Some(&(t_year, _)), Some(&tide), Ok(ch)) =
+                    (date_w.get(f[1]), tide_by_id.get(f[1]), f[2].parse::<f64>())
+                else {
+                    continue;
+                };
+                by_transect
+                    .entry(f[0].to_string())
+                    .or_default()
+                    .push((t_year * 365.2425, ch, tide));
+            }
+
+            let settings = SlopeSettings {
+                min_valid,
+                ..Default::default()
+            };
+            let mut out = String::from("transect,slope,peak_freq_cpd,energy_ratio,n\n");
+            let mut n_ok = 0usize;
+            let mut slopes = Vec::new();
+            for (tname, mut obs) in by_transect {
+                obs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+                let t: Vec<f64> = obs.iter().map(|o| o.0).collect();
+                let x: Vec<f64> = obs.iter().map(|o| o.1).collect();
+                let h: Vec<f64> = obs.iter().map(|o| o.2).collect();
+                if let Some(est) = estimate_beach_slope(&t, &x, &h, &settings) {
+                    n_ok += 1;
+                    slopes.push(est.slope);
+                    out.push_str(&format!(
+                        "{},{:.4},{:.6},{:.4},{}\n",
+                        tname, est.slope, est.peak_freq_cpd, est.energy_ratio, est.n
+                    ));
+                }
+            }
+            std::fs::write(&output, out)
+                .with_context(|| format!("escribiendo {}", output.display()))?;
+            slopes.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            let med = slopes.get(slopes.len() / 2).copied().unwrap_or(f64::NAN);
+            eprintln!(
+                "{} transectos con slope estimado (mediana tan(β) = {:.3}) -> {}",
+                n_ok,
+                med,
                 output.display()
             );
         }

@@ -395,3 +395,29 @@ benchmark (software + accuracy vs CoastSat + velocidad).
   - 53 tests (51 + 2 integración), clippy limpio, ambos modos.
   - v0.2 queda cerrado salvo proptest/fuzzing (opcionales). Siguiente:
     v0.3 SOTA-core (S1 subpixel erf + S4 slope satelital + S5a σ).
+
+- **2026-07-12 (3)**: **v0.3 SOTA-CORE COMPLETO — S1+S4+S5a** (adenda 3 de
+  la auditoría). El paper deja de ser "port rápido" y tiene método propio.
+  - **S1** (`subpixel` + CLI `profile`): ajuste de perfil sigmoide
+    (LM 4 parámetros) sobre el MNDWI muestreado bilinealmente por
+    transecto. **3× menos RMSE (0.53 vs 1.61 m) y sesgo eliminado (+0.02
+    vs −0.78 m)** vs el flujo contorno+intersección en el experimento
+    sintético con maquinaria de producción real. La figura de accuracy
+    del paper (test `pixel_locking.rs`).
+  - **Hallazgo E2**: el perfil expone transectos torcidos que la
+    intersección-franja tolera (transectos del paper: 18/250 cruces; flujo
+    auto-referenciado extract→baseline→transects --smooth-window→profile:
+    69/69). `smooth_polyline` agregado al generador.
+  - **S4** (`slope` + CLI `slope`): Lomb-Scargle nativo + barrido de
+    pendientes minimizando energía mareal residual (Vos 2020). Recupera
+    slope a ±0.01 en sintético con muestreo Landsat; 0.08→0.0825 sobre las
+    770 fechas reales + marea GOT real de Viña.
+  - **Hallazgo E3 (límite cuantificado)**: con ruido ≥5 m el estimador se
+    sesga hacia abajo; en Viña (micro-tidal) NO es identificable con
+    solo-Landsat — requiere S2 o sitio macro-tidal (Chiloé). Consistente
+    con la advertencia de Vos 2020. Resultado de paper.
+  - **S5a**: σ por punto en `profile` (σ_fit del ajuste + georef + umbral
+    vía ∂x/∂t=w/b del modelo). Alimenta los pesos reales del WLR.
+  - Refactor: `select_level` compartido extract/profile (contorneo
+    unificado a MNDWI textbook, geométricamente neutro: 0.20/0.19 m).
+  - 60 tests (57 + 3 integración), clippy limpio, ambos modos.
