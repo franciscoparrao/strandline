@@ -356,3 +356,22 @@ benchmark (software + accuracy vs CoastSat + velocidad).
     Getis-Ord), S8 wave runup, S9 PyO3+WASM. Secuencia sugerida: v0.2
     hardening → v0.3 SOTA-core (S1+S4+S5a) → v0.4 escala (S2+S6) → paper.
   - 42 tests, clippy limpio.
+
+- **2026-07-12**: **v0.2 hardening (primera tanda) + validación en segundo
+  sitio** — ver adenda de `AUDITORIA_MOTOR_2026-07.md`.
+  - **R1 corregido**: `parse_timestamp` aplica los offsets de zona horaria
+    (antes los ignoraba en silencio) y rechaza sufijos malformados.
+  - **Fixture de integración en CI**: recorte 96×96 real de Reñaca (~200 KB)
+    en `strandline-core/tests/fixtures/` + 2 tests golden del camino
+    completo GeoTIFF → shoreline (sin y con clasificador).
+  - **Constitución validada** (bahía curva, terremoto 2010, S2, QC
+    relajado): generación de transectos exacta (176, err 0.0 m), tasas
+    NSM/SCE/EPR/LRR exactas, QC 0 mismatch (93/81 idéntico), flujo mareal
+    exacto (78/78). **Ningún bug nuevo del motor en geometría distinta.**
+  - **Hallazgo E1** (del harness, no del motor): el WLR difería 0.56 m/año
+    porque Constitución incluye Sentinel-2 (peso 1/7) y el satname no se
+    retuvo en el pickle — el proxy de pesos por corte de fecha solo vale
+    para sitios Landsat-only. Estimador demostrado correcto (numpy con
+    pesos idénticos coincide a 5e-5). Trampa de uso documentada: en sitios
+    multi-misión pasar pesos reales por satélite en la columna `weight`.
+  - 46 tests (44 unitarios + 2 integración), clippy limpio.

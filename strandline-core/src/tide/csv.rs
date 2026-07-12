@@ -143,7 +143,9 @@ pub fn read_constituents_csv(
 }
 
 /// Parsea un timestamp ISO a MJD (UTC). Tolerante al separador fecha-hora
-/// (`T` o espacio), a fracción de segundo y a sufijos de zona, que ignora.
+/// (`T` o espacio) y a fracción de segundo. Los sufijos de zona horaria
+/// (`Z`, `±HH:MM`, `±HHMM`, `±HH`) **se aplican**: el resultado siempre es
+/// UTC (bug R1 de la auditoría 2026-07 — antes se ignoraban en silencio).
 pub fn parse_timestamp(s: &str) -> Option<f64> {
     let s = s.trim();
     let (date_part, time_part) = if let Some(pos) = s.find(['T', ' ']) {
@@ -158,28 +160,48 @@ pub fn parse_timestamp(s: &str) -> Option<f64> {
     let day: u32 = d.next()?.parse().ok()?;
 
     let (mut hour, mut minute, mut second) = (0u32, 0u32, 0.0f64);
+    let mut offset_hours = 0.0f64;
     if !time_part.is_empty() {
-        // recortar sufijo de zona (Z, +HH:MM, -HH:MM) del final
-        let core = strip_timezone(time_part);
+        let (core, offset) = split_timezone(time_part)?;
+        offset_hours = offset;
         let mut t = core.split(':');
         hour = t.next()?.parse().ok()?;
         minute = t.next().and_then(|x| x.parse().ok()).unwrap_or(0);
         second = t.next().and_then(|x| x.parse().ok()).unwrap_or(0.0);
     }
-    Some(datetime_to_mjd(year, month, day, hour, minute, second))
+    // hora_local = UTC + offset  →  UTC = hora_local − offset
+    Some(datetime_to_mjd(year, month, day, hour, minute, second) - offset_hours / 24.0)
 }
 
-/// Quita un sufijo de zona horaria de la parte de hora (`Z`, `+HH:MM`,
-/// `-HH:MM`). No aplica el offset — se asume que el CSV está en UTC.
-fn strip_timezone(time_part: &str) -> &str {
+/// Separa la parte de hora de su sufijo de zona horaria y devuelve
+/// `(hora_sin_zona, offset_en_horas)`. Acepta `Z` (offset 0), `±HH:MM`,
+/// `±HHMM` y `±HH`. Sin sufijo → offset 0 (se asume UTC). Devuelve `None`
+/// si el sufijo existe pero está malformado — mejor rechazar que
+/// interpretar mal una zona horaria.
+fn split_timezone(time_part: &str) -> Option<(&str, f64)> {
     if let Some(stripped) = time_part.strip_suffix('Z') {
-        return stripped;
+        return Some((stripped, 0.0));
     }
     // un '+' o un '-' que aparezca DESPUÉS del primer carácter marca la zona
-    if let Some(pos) = time_part[1..].find(['+', '-']) {
-        return &time_part[..pos + 1];
-    }
-    time_part
+    let Some(pos) = time_part[1..].find(['+', '-']) else {
+        return Some((time_part, 0.0));
+    };
+    let pos = pos + 1;
+    let (core, suffix) = (&time_part[..pos], &time_part[pos..]);
+    let sign = if suffix.starts_with('-') { -1.0 } else { 1.0 };
+    let digits = &suffix[1..];
+    let (hh, mm): (&str, &str) = match digits.len() {
+        // ±HH:MM
+        5 if digits.as_bytes()[2] == b':' => (&digits[..2], &digits[3..]),
+        // ±HHMM
+        4 => (&digits[..2], &digits[2..]),
+        // ±HH
+        2 => (digits, "0"),
+        _ => return None,
+    };
+    let hh: f64 = hh.parse().ok()?;
+    let mm: f64 = mm.parse().ok()?;
+    Some((core, sign * (hh + mm / 60.0)))
 }
 
 #[cfg(test)]
@@ -196,6 +218,34 @@ mod tests {
             assert!((a - x).abs() < 1e-9);
         }
         assert!((parse_timestamp("2020-01-10").unwrap() - 58858.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn timezone_offset_applied() {
+        // R1 (auditoría 2026-07): el offset debe APLICARSE, no ignorarse.
+        // 14:33:52 en Chile continental (-03:00) = 17:33:52 UTC.
+        let utc = parse_timestamp("2020-01-10T17:33:52Z").unwrap();
+        for local in [
+            "2020-01-10T14:33:52-03:00",
+            "2020-01-10T14:33:52-0300",
+            "2020-01-10T14:33:52-03",
+        ] {
+            let x = parse_timestamp(local).unwrap();
+            assert!((x - utc).abs() < 1e-9, "{local}: {x} vs {utc}");
+        }
+        // offset positivo (este de Greenwich)
+        let plus = parse_timestamp("2020-01-10T20:33:52+03:00").unwrap();
+        assert!((plus - utc).abs() < 1e-9);
+        // offset con minutos (India +05:30)
+        let india = parse_timestamp("2020-01-10T23:03:52+05:30").unwrap();
+        assert!((india - utc).abs() < 1e-9);
+    }
+
+    #[test]
+    fn malformed_timezone_rejected() {
+        // sufijo de zona presente pero ilegible → None, no interpretación
+        assert!(parse_timestamp("2020-01-10T14:33:52-3:0").is_none());
+        assert!(parse_timestamp("2020-01-10T14:33:52+abc").is_none());
     }
 
     #[test]

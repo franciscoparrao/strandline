@@ -24,3 +24,4 @@
 # Temporales
 *.pyc
 __pycache__/
+/spike/constitucion/intersections_clean.csv

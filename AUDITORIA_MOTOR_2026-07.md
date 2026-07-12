@@ -258,3 +258,50 @@ su browser — argumento de reproducibilidad inusualmente fuerte.
   < 3 mm).
 - Tests golden del MLP: 4 vectores generados desde el sklearn original
   (water→3, whitewater→2, other→0 ×2).
+
+---
+
+## ADENDA (2026-07-12) — v0.2 hardening: R1, fixture CI y segundo sitio
+
+### R1 corregido
+`parse_timestamp` ahora **aplica** los offsets de zona (`Z`, `±HH:MM`,
+`±HHMM`, `±HH`) y **rechaza** sufijos malformados en vez de interpretarlos.
+Tests con offsets chilenos (−03/−04) y con minutos (+05:30).
+
+### Fixture de integración en CI
+Recorte real de 96×96 px de la escena L8 2020-01-10 (playa de Reñaca, ~50%
+agua, ~200 KB) commiteado a `strandline-core/tests/fixtures/` + 2 tests de
+integración con golden values (umbral, n líneas, conteos de clasificación
+exactos, bounding box). Primer test en CI que ejercita el camino completo
+GeoTIFF → shoreline.
+
+### Validación en segundo sitio: Constitución (hardening empírico)
+Bahía curva, desembocadura del Maule, terremoto 2010, **con Sentinel-2**
+(53–63 fechas/año post-2016) y criterios QC relajados — geometría y
+configuración totalmente distintas a Viña. Resultados contra
+`CONSTITUCION_analysis.pkl` / `CONSTITUCION_tidal_corrected.pkl`:
+
+| Etapa | Resultado |
+|-------|-----------|
+| Generación de transectos (176, costa curva) | **exacta** (err máx 0.0000 m) |
+| NSM/SCE/EPR/LRR/R²/IC95 (174 transectos) | exactas (~5e-5 / ~5e-7) |
+| QC (umbrales relajados vía flags del CLI) | **0 mismatch** (93 excl. / 81 ret. idéntico) |
+| Flujo mareal → LRR corregido (78 transectos) | exacto (~5e-7) |
+| WLR | ver E1 |
+
+### E1. El proxy de pesos por fecha del WLR solo vale para sitios Landsat-only
+El único desajuste del segundo sitio (WLR err máx 0.56 m/año) se diagnosticó
+por completo: **el estimador es correcto** (recomputado en numpy con pesos
+idénticos coincide con Rust a 5e-5, el redondeo de exportación); la
+diferencia viene de que Constitución incluye Sentinel-2 (peso 1/7 en el
+paper) y el `satname` no se retuvo en el pickle, así que el proxy
+"1/15 antes de 2013-04, 1/10 después" usado por el harness de validación no
+puede reproducir los pesos reales. No es un bug del motor —
+`strandline rates` acepta el peso real por shoreline en la columna `weight`
+del CSV de fechas — pero sí una **trampa de uso documentable**: en sitios
+multi-misión el usuario debe pasar pesos por satélite reales, no confiar en
+cortes temporales.
+
+**Conclusión del hardening empírico**: el motor no tuvo ningún bug nuevo en
+una geometría/configuración completamente distinta; el único hallazgo fue
+del harness de validación. 46 tests (44 unitarios + 2 integración).
