@@ -1,7 +1,7 @@
 //! Clasificación de píxeles (sand/whitewater/water/other) vía el MLP
 //! portado de CoastSat, réplica de `SDS_shoreline.classify_image_NN`.
 
-use surtgis_core::ndarray::Array2;
+use ndarray::Array2;
 use surtgis_core::raster::Raster;
 
 use crate::error::Result;

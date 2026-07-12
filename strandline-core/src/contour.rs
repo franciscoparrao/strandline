@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 
-use surtgis_core::ndarray::ArrayView2;
+use ndarray::ArrayView2;
 
 /// Punto en coordenadas de imagen fraccionales `(row, col)`.
 pub type Point = (f64, f64);
@@ -172,7 +172,7 @@ fn assemble(segments: Vec<(Point, Point)>) -> Vec<Contour> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use surtgis_core::ndarray::Array2;
+    use ndarray::Array2;
 
     #[test]
     fn single_vertical_interface() {

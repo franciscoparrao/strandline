@@ -19,4 +19,5 @@ surtgis-core.workspace = true
 thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+ndarray.workspace = true
 rayon = { workspace = true, optional = true }

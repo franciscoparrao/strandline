@@ -17,6 +17,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 clap = { version = "4", features = ["derive"] }
 rayon = "1"
+# Debe coincidir con la versión que usa surtgis-core (0.16) para que los
+# tipos de `Raster::data()` (ndarray::Array2) sean compatibles: surtgis-core
+# dejó de re-exportar `ndarray`, así que se declara como dep directa.
+ndarray = "0.16"
 
 [profile.release]
 lto = true

@@ -5,6 +5,7 @@ use std::path::PathBuf;
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
+use strandline_core::qc::{self, QcCriteria};
 use strandline_core::rates::{compute_rates, decimal_year_from_mjd, despike};
 use strandline_core::tide::{self, harmonic::TidePredictor, TideCorrection};
 use strandline_core::transects::{
@@ -147,6 +148,25 @@ enum Command {
         /// antes del despiking y las tasas (Vos et al. 2019).
         #[arg(long)]
         tide_correction: Option<PathBuf>,
+        /// Aplica los 5 filtros QC calibrados y agrega columnas
+        /// `excluded,reason` a la salida.
+        #[arg(long)]
+        qc: bool,
+        /// |LRR| máximo (m/año) para el QC.
+        #[arg(long, default_value_t = 5.0)]
+        max_abs_lrr: f64,
+        /// SCE máximo (m) para el QC.
+        #[arg(long, default_value_t = 500.0)]
+        max_sce: f64,
+        /// Span temporal mínimo (años) para el QC.
+        #[arg(long, default_value_t = 20.0)]
+        min_years: f64,
+        /// Observaciones válidas mínimas para el QC.
+        #[arg(long, default_value_t = 50)]
+        min_valid_qc: usize,
+        /// R² mínimo del LRR para el QC.
+        #[arg(long, default_value_t = 0.01)]
+        min_r2: f64,
         /// CSV de salida con las tasas por transecto.
         #[arg(short, long)]
         output: PathBuf,
@@ -522,9 +542,22 @@ fn main() -> anyhow::Result<()> {
             despike_max_change,
             despike_min_valid,
             tide_correction,
+            qc,
+            max_abs_lrr,
+            max_sce,
+            min_years,
+            min_valid_qc,
+            min_r2,
             output,
         } => {
             let date_w = read_date_weights(&dates)?;
+            let criteria = QcCriteria {
+                max_abs_lrr,
+                max_sce,
+                min_years,
+                min_valid: min_valid_qc,
+                min_r2,
+            };
             let tide_corr = match &tide_correction {
                 Some(p) => read_tide_correction(p)?,
                 None => std::collections::HashMap::new(),
@@ -555,9 +588,14 @@ fn main() -> anyhow::Result<()> {
             }
 
             let mut out = String::from(
-                "transect,n_valid,years,NSM_m,SCE_m,EPR_m_yr,LRR_m_yr,LRR_r2,LRR_ci95,WLR_m_yr,WLR_ci95\n",
+                "transect,n_valid,years,NSM_m,SCE_m,EPR_m_yr,LRR_m_yr,LRR_r2,LRR_ci95,WLR_m_yr,WLR_ci95",
             );
+            if qc {
+                out.push_str(",excluded,reason");
+            }
+            out.push('\n');
             let mut n_out = 0usize;
+            let mut n_excluded = 0usize;
             for (tname, mut obs) in by_transect {
                 obs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
                 let t: Vec<f64> = obs.iter().map(|o| o.0).collect();
@@ -569,7 +607,7 @@ fn main() -> anyhow::Result<()> {
                 if let Some(r) = compute_rates(&t, &y, Some(&w), min_valid) {
                     n_out += 1;
                     out.push_str(&format!(
-                        "{},{},{:.4},{:.4},{:.4},{:.4},{:.6},{:.6},{:.6},{:.6},{:.6}\n",
+                        "{},{},{:.4},{:.4},{:.4},{:.4},{:.6},{:.6},{:.6},{:.6},{:.6}",
                         tname,
                         r.n_valid,
                         r.years,
@@ -582,11 +620,31 @@ fn main() -> anyhow::Result<()> {
                         r.wlr,
                         r.wlr_ci95
                     ));
+                    if qc {
+                        match qc::evaluate(&r, &criteria) {
+                            Some(reason) => {
+                                n_excluded += 1;
+                                out.push_str(&format!(",True,{}", reason.label()));
+                            }
+                            None => out.push_str(",False,"),
+                        }
+                    }
+                    out.push('\n');
                 }
             }
             std::fs::write(&output, out)
                 .with_context(|| format!("escribiendo {}", output.display()))?;
-            eprintln!("{} transectos con tasas -> {}", n_out, output.display());
+            if qc {
+                eprintln!(
+                    "{} transectos con tasas, {} excluidos por QC ({} retenidos) -> {}",
+                    n_out,
+                    n_excluded,
+                    n_out - n_excluded,
+                    output.display()
+                );
+            } else {
+                eprintln!("{} transectos con tasas -> {}", n_out, output.display());
+            }
         }
     }
     Ok(())

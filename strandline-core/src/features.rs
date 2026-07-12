@@ -7,7 +7,7 @@
 //! 10–14 desviación estándar local (ventana 3×3) de las 5 bandas; 15–19
 //! desviación estándar local de los 5 índices.
 
-use surtgis_core::ndarray::Array2;
+use ndarray::Array2;
 use surtgis_core::raster::Raster;
 
 use crate::error::{Result, StrandlineError};

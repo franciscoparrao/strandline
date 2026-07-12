@@ -9,7 +9,9 @@ satelitales. El "CoastSat/DSAS en Rust" de la familia de engines del autor
 **Nombre**: `strandline` ("strandline" = línea de costa en inglés antiguo).
 Verificado disponible en crates.io (2026-07-10; `strand` y `swash` tomados).
 
-**Estado**: SPIKE DE VIABILIDAD (semana 1). Nada construido aún.
+**Estado**: V1 COMPLETO (2026-07-11). Los 9 items del scope implementados y
+validados end-to-end vs CoastSat/pyTMD/el pickle del paper. Ver "Estado del
+V1" al final. Próximo: empaquetar (crates.io/Zenodo) + paper C&G.
 
 ## Motivación (pain-points vividos, no teóricos)
 
@@ -284,6 +286,48 @@ Seminario MONCOSTA (U. Mayor / Centro Hémera, Idania Briceño) — bitácora en
     (~500 m, dominado por intersecciones múltiples, no por la marea de ±15 m);
     el efecto mareal se ve en las tasas por transecto, no en el envelope.
   - 37 tests totales, clippy limpio, pasa en paralelo y single-thread.
-  - **Pipeline V1 completo de extremo a extremo**: GeoTIFF → extract →
-    classify (MLP) → transects → intersect → (tide correct) → rates. Falta
-    scope item 9 (filtros QC: los 5 criterios calibrados |LRR|/SCE/span/n/R²).
+
+- **2026-07-11 (noche-2)**: **Filtros QC (scope item 9) implementados — V1
+  COMPLETO**. Módulo `strandline-core::qc`:
+  - `QcCriteria` + `evaluate`: los 5 criterios calibrados del paper aplicados
+    **en orden** (la razón es el primero que falla): |LRR|≤5 m/año, SCE≤500 m,
+    span≥20 años, n_valid≥50, R²≥0.01. `classify`: erosión/estable/acreción
+    (umbral ±0.5).
+  - **Validación exacta contra `change_rates_all_with_qc.csv`** (179
+    transectos): **0 mismatch en excluded, 0 en reason**. Distribución de
+    razones idéntica: SCE>500 (51), |LRR|>5 (36), R²<0.01 (19), n<50 (1),
+    retenidos (72).
+  - CLI: `strandline rates --qc` (agrega columnas excluded/reason, umbrales
+    configurables).
+  - **Fix necesario**: surtgis-core dejó de re-exportar `ndarray` (cambió su
+    API); se agregó `ndarray = "0.16"` como dep directa de strandline-core
+    (misma versión → tipos compatibles con `Raster::data()`) y se cambiaron
+    los `surtgis_core::ndarray::` a `ndarray::` en 4 archivos.
+  - 40 tests totales, clippy limpio, pasa en paralelo y single-thread.
+
+## Estado del V1 (COMPLETO — 2026-07-11)
+
+Los 9 items del scope V1 están implementados y **cada uno validado contra
+CoastSat / pyTMD / el pickle del paper**:
+
+| Item | Módulo | Validación |
+|------|--------|------------|
+| 1. I/O raster | (surtgis-core) | — |
+| 2. MNDWI | `index` | — |
+| 3. Clasificación píxeles | `mlp`+`features`+`classify` | <1.5% px vs CoastSat |
+| 4. Umbral Otsu | `otsu` | — |
+| 5. Extracción subpixel | `contour`+`shoreline` | 0.3 m mediana vs CoastSat |
+| 6. Corrección mareal | `tide` | 1.15 mm vs pyTMD; exacto vs pickle |
+| 7. Transectos | `transects` | exacto vs pickle; ~197× |
+| 8. Tasas DSAS | `rates` | exacto vs rates_df |
+| 9. Filtros QC | `qc` | exacto vs all_with_qc |
+
+Pipeline de extremo a extremo: **GeoTIFF → extract → classify → transects →
+intersect → (tide correct) → rates → qc**, todo en Rust, 40 tests, clippy
+limpio, paralelo y single-thread.
+
+**Próximos pasos** (post-V1): cargar constituyentes reales de Viña (SHOA)
+para precisión mareal mm real; filtro de nubes en modo sin clasificador;
+reproyección a EPSG de salida; empaquetar para publicación (crates.io +
+mdBook + Zenodo DOI, skill `/zenodo`); escribir el paper de C&G con el
+benchmark (software + accuracy vs CoastSat + velocidad).

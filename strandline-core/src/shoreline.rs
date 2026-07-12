@@ -4,7 +4,7 @@
 use std::path::Path;
 use std::time::Instant;
 
-use surtgis_core::ndarray::Array2;
+use ndarray::Array2;
 use surtgis_core::io::read_geotiff_bands;
 use surtgis_core::raster::{GeoTransform, Raster};
 
