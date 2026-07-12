@@ -15,6 +15,10 @@
 # Settings locales de Claude Code (específicos de la máquina)
 .claude/settings.local.json
 
+# Artefactos de validación regenerables (shorelines sintéticas, salidas)
+/spike/transects/shorelines_synth.csv
+/spike/transects/cross_rust.csv
+
 # Temporales
 *.pyc
 __pycache__/

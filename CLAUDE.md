@@ -232,3 +232,32 @@ Seminario MONCOSTA (U. Mayor / Centro Hémera, Idania Briceño) — bitácora en
   - **Pendiente V1**: la corrección se integrará con los transectos (item 7)
     cuando existan — hoy `correct_chainage` opera sobre cualquier serie de
     cross-shore distances.
+
+- **2026-07-11 (tarde-3)**: **Transectos (scope item 7) implementados**.
+  Módulo `strandline-core::transects`:
+  - `generate_transects`: perpendiculares (shore-normal) a una línea base —
+    re-muestreo por longitud de arco, tangente por diferencias centrales,
+    normal orientada al mar vía `seaward_hint`, transecto tierra→mar.
+    Validado **exacto** contra el pickle del paper: 250 transectos generados
+    desde la `reference_shoreline`, error máximo de coordenada **0.0000 m**.
+  - `compute_intersections`: **intersección vectorizada shoreline×transecto
+    con QC** — el germen del benchmark del paper C&G. Réplica del
+    `compute_intersection_QC` de CoastSat (distancia perpendicular, franja
+    `along_dist`, rotación a shore-normal = chainage, estadísticos NaN-aware,
+    QC max_std/max_range/min_points con `multiple_inter` auto/max/nan).
+    Paralelizado con rayon sobre transectos.
+  - **Validación**: contra el algoritmo Python vectorizado del paper sobre
+    200 shorelines sintéticas × 250 transectos — 49602 cruces, **0 mismatch
+    de NaN** (el QC replica exacto), error máximo de chainage **0.1 mm**
+    (redondeo del CSV).
+  - **Benchmark de velocidad** (250 transectos × 200 shorelines): Python
+    vectorizado del paper **11.63 s** → Rust **0.059 s** = **~197× más
+    rápido**. Y el paper ya era "segundos vs 20+ min" del loop original de
+    CoastSat, así que vs el `compute_intersection_QC` puro de CoastSat el
+    speedup es de ~4 órdenes de magnitud. Esto es exactamente el argumento
+    central del paper software+benchmark.
+  - CLI: `strandline transects` (genera) y `strandline intersect` (cruza).
+  - 31 tests totales, clippy limpio, pasa en paralelo y single-thread.
+  - **Próximo V1**: item 8 (tasas DSAS: EPR/LRR/WLR/NSM/SCE con
+    incertidumbre) — consume el `cross_distance` de la intersección, aquí se
+    conecta también `tide::correct_chainage`.

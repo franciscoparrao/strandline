@@ -6,6 +6,9 @@ use std::path::PathBuf;
 use anyhow::Context;
 use clap::{Parser, Subcommand};
 use strandline_core::tide::{self, harmonic::TidePredictor, TideCorrection};
+use strandline_core::transects::{
+    compute_intersections, generate_transects, transect_name, IntersectionSettings, Transect,
+};
 use strandline_core::{extract_shoreline, ExtractParams};
 
 #[derive(Parser)]
@@ -80,6 +83,153 @@ enum Command {
         #[arg(short, long)]
         output: PathBuf,
     },
+    /// Genera transectos perpendiculares (shore-normal) a una línea base.
+    Transects {
+        /// CSV de la línea base (columnas: easting, northing).
+        #[arg(long)]
+        baseline: PathBuf,
+        /// Separación entre transectos a lo largo de la costa (m).
+        #[arg(long, default_value_t = 100.0)]
+        spacing: f64,
+        /// Largo total de cada transecto (m).
+        #[arg(long, default_value_t = 500.0)]
+        length: f64,
+        /// Componente Este de la dirección aproximada hacia el mar.
+        #[arg(long, default_value_t = -1.0)]
+        seaward_e: f64,
+        /// Componente Norte de la dirección aproximada hacia el mar.
+        #[arg(long, default_value_t = 0.0)]
+        seaward_n: f64,
+        /// CSV de salida (name, origin_e, origin_n, end_e, end_n).
+        #[arg(short, long)]
+        output: PathBuf,
+    },
+    /// Calcula la intersección cross-shore de shorelines con transectos
+    /// (versión vectorizada del compute_intersection_QC de CoastSat).
+    Intersect {
+        /// CSV de transectos (name, origin_e, origin_n, end_e, end_n).
+        #[arg(long)]
+        transects: PathBuf,
+        /// CSV de shorelines (shoreline_id, easting, northing), en orden.
+        #[arg(long)]
+        shorelines: PathBuf,
+        /// Semiancho de la franja alrededor del eje del transecto (m).
+        #[arg(long, default_value_t = 25.0)]
+        along_dist: f64,
+        /// CSV de salida en formato largo (transect, shoreline_id, chainage_m).
+        #[arg(short, long)]
+        output: PathBuf,
+    },
+}
+
+/// Lee transectos desde el CSV que escribe `write_transects_csv`.
+fn read_transects_csv(path: &PathBuf) -> anyhow::Result<Vec<Transect>> {
+    let text = std::fs::read_to_string(path)
+        .with_context(|| format!("leyendo transectos {}", path.display()))?;
+    let mut lines = text.lines().filter(|l| !l.trim().is_empty());
+    lines.next(); // header conocido: name,origin_e,origin_n,end_e,end_n
+    let mut out = Vec::new();
+    for l in lines {
+        let f: Vec<&str> = l.split(',').map(str::trim).collect();
+        if f.len() < 5 {
+            continue;
+        }
+        out.push(Transect {
+            origin: (f[1].parse()?, f[2].parse()?),
+            end: (f[3].parse()?, f[4].parse()?),
+        });
+    }
+    Ok(out)
+}
+
+/// Shorelines leídas: los ids (en orden de aparición) y los puntos de cada
+/// una.
+type Shorelines = (Vec<String>, Vec<Vec<(f64, f64)>>);
+
+/// Lee shorelines agrupadas por `shoreline_id` (preserva el orden de
+/// aparición de los ids y de los puntos dentro de cada uno).
+fn read_shorelines_csv(path: &PathBuf) -> anyhow::Result<Shorelines> {
+    let text = std::fs::read_to_string(path)
+        .with_context(|| format!("leyendo shorelines {}", path.display()))?;
+    let mut lines = text.lines().filter(|l| !l.trim().is_empty());
+    let header: Vec<String> = lines
+        .next()
+        .unwrap_or_default()
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .collect();
+    let idi = header.iter().position(|c| c == "shoreline_id").context("falta 'shoreline_id'")?;
+    let ei = header.iter().position(|c| c == "easting").context("falta 'easting'")?;
+    let ni = header.iter().position(|c| c == "northing").context("falta 'northing'")?;
+
+    let mut ids: Vec<String> = Vec::new();
+    let mut groups: Vec<Vec<(f64, f64)>> = Vec::new();
+    let mut last_id: Option<String> = None;
+    for l in lines {
+        let f: Vec<&str> = l.split(',').map(str::trim).collect();
+        if f.len() <= idi.max(ei).max(ni) {
+            continue;
+        }
+        let id = f[idi].to_string();
+        if last_id.as_ref() != Some(&id) {
+            ids.push(id.clone());
+            groups.push(Vec::new());
+            last_id = Some(id);
+        }
+        if let (Ok(e), Ok(n)) = (f[ei].parse::<f64>(), f[ni].parse::<f64>()) {
+            groups.last_mut().unwrap().push((e, n));
+        }
+    }
+    Ok((ids, groups))
+}
+
+/// Lee una línea base desde CSV con columnas `easting`, `northing`.
+fn read_baseline(path: &PathBuf) -> anyhow::Result<Vec<(f64, f64)>> {
+    let text = std::fs::read_to_string(path)
+        .with_context(|| format!("leyendo baseline {}", path.display()))?;
+    let mut lines = text.lines().filter(|l| !l.trim().is_empty());
+    let header: Vec<String> = lines
+        .next()
+        .unwrap_or_default()
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .collect();
+    let ei = header
+        .iter()
+        .position(|c| c == "easting")
+        .context("falta columna 'easting'")?;
+    let ni = header
+        .iter()
+        .position(|c| c == "northing")
+        .context("falta columna 'northing'")?;
+    let mut out = Vec::new();
+    for l in lines {
+        let f: Vec<&str> = l.split(',').map(str::trim).collect();
+        if f.len() <= ei.max(ni) {
+            continue;
+        }
+        if let (Ok(e), Ok(n)) = (f[ei].parse::<f64>(), f[ni].parse::<f64>()) {
+            out.push((e, n));
+        }
+    }
+    Ok(out)
+}
+
+/// Escribe transectos a CSV con nombres canónicos T001, T002, …
+fn write_transects_csv(transects: &[Transect], path: &PathBuf) -> anyhow::Result<()> {
+    let mut out = String::from("name,origin_e,origin_n,end_e,end_n\n");
+    for (i, t) in transects.iter().enumerate() {
+        out.push_str(&format!(
+            "{},{:.6},{:.6},{:.6},{:.6}\n",
+            transect_name(i),
+            t.origin.0,
+            t.origin.1,
+            t.end.0,
+            t.end.1
+        ));
+    }
+    std::fs::write(path, out).with_context(|| format!("escribiendo {}", path.display()))?;
+    Ok(())
 }
 
 fn main() -> anyhow::Result<()> {
@@ -205,6 +355,68 @@ fn main() -> anyhow::Result<()> {
                 predictor.len(),
                 tmin,
                 tmax,
+                output.display()
+            );
+        }
+        Command::Transects {
+            baseline,
+            spacing,
+            length,
+            seaward_e,
+            seaward_n,
+            output,
+        } => {
+            let line = read_baseline(&baseline)?;
+            anyhow::ensure!(line.len() >= 2, "la línea base necesita ≥2 puntos");
+            let transects = generate_transects(&line, spacing, length, (seaward_e, seaward_n));
+            write_transects_csv(&transects, &output)?;
+            eprintln!(
+                "{} puntos de línea base -> {} transectos (spacing {} m, largo {} m) -> {}",
+                line.len(),
+                transects.len(),
+                spacing,
+                length,
+                output.display()
+            );
+        }
+        Command::Intersect {
+            transects,
+            shorelines,
+            along_dist,
+            output,
+        } => {
+            let ts = read_transects_csv(&transects)?;
+            let (sl_ids, sls) = read_shorelines_csv(&shorelines)?;
+            anyhow::ensure!(!ts.is_empty(), "no hay transectos");
+            anyhow::ensure!(!sls.is_empty(), "no hay shorelines");
+
+            let settings = IntersectionSettings {
+                along_dist,
+                ..Default::default()
+            };
+            let t0 = std::time::Instant::now();
+            let cross = compute_intersections(&sls, &ts, &settings);
+            let elapsed = t0.elapsed().as_secs_f64();
+
+            let mut out = String::from("transect,shoreline_id,chainage_m\n");
+            let mut n_valid = 0usize;
+            for (ti, per_shore) in cross.iter().enumerate() {
+                let tname = transect_name(ti);
+                for (si, &ch) in per_shore.iter().enumerate() {
+                    if ch.is_finite() {
+                        n_valid += 1;
+                        out.push_str(&format!("{},{},{:.4}\n", tname, sl_ids[si], ch));
+                    }
+                }
+            }
+            std::fs::write(&output, out)
+                .with_context(|| format!("escribiendo {}", output.display()))?;
+            eprintln!(
+                "{} transectos × {} shorelines: {} cruces válidos en {:.3} s -> {}",
+                ts.len(),
+                sls.len(),
+                n_valid,
+                elapsed,
                 output.display()
             );
         }
