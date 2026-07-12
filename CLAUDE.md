@@ -331,3 +331,28 @@ para precisión mareal mm real; filtro de nubes en modo sin clasificador;
 reproyección a EPSG de salida; empaquetar para publicación (crates.io +
 mdBook + Zenodo DOI, skill `/zenodo`); escribir el paper de C&G con el
 benchmark (software + accuracy vs CoastSat + velocidad).
+
+- **2026-07-11 (noche-3)**: **Auditoría del motor + roadmap SOTA** — ver
+  `AUDITORIA_MOTOR_2026-07.md`. Relectura completa con ojos frescos, 2 bugs
+  **verificados empíricamente y corregidos** en el mismo commit:
+  - **B1**: `generate_transects` hacía panic (índice fuera de rango) con
+    línea base más corta que el spacing. Fix: tangente de respaldo desde la
+    línea completa. Test nuevo; generación vs pickle sigue exacta.
+  - **B2**: el constituyente **Sa tenía el argumento astronómico equivocado**
+    (V0=h en vez de h−ps, convención GOT/pyTMD) → fase anual ~283° corrida,
+    dato incorrecto silencioso. Quedó fuera del test original (testeaba Ssa
+    pero no Sa). Fix: Doodson [0,0,1,0,-1] + Sa incorporado al test de
+    predicción total (nueva referencia pyTMD, 13 constituyentes, <3 mm).
+  - Golden tests del MLP agregados (4 vectores desde el sklearn original).
+  - Backlog de robustez priorizado (R1–R7): timezone silencioso en CSV,
+    dist_clouds faltante, NIR hardcodeado en compat, guardia de CRS,
+    GeoJSON RFC 7946, taxonomía de errores.
+  - **Propuestas SOTA** (ranked, en el doc): S1 subpixel por ajuste erf de
+    perfil (anti pixel-locking, ~3-5 m absolutos, SHOREX-style — mejor
+    razón novedad/esfuerzo), S2 streaming COG/STAC sin descarga
+    (surtgis-cloud), S3 segmentación DL vía ONNX/tract, S4 beach slope
+    satelital (CoastSat.slope), S5 σ por punto + conformal (smelt-ml) +
+    tasas robustas, S6 Sentinel-2, S7 analítica temporal (STL/change-point/
+    Getis-Ord), S8 wave runup, S9 PyO3+WASM. Secuencia sugerida: v0.2
+    hardening → v0.3 SOTA-core (S1+S4+S5a) → v0.4 escala (S2+S6) → paper.
+  - 42 tests, clippy limpio.

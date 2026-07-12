@@ -119,7 +119,10 @@ pub const PRINCIPAL_CONSTITUENTS: &[ConstituentDef] = &[
     ConstituentDef { name: "Mf", doodson: [0.0, 2.0, 0.0, 0.0, 0.0], phase: 0.0, node: NodeCorrection::Mf },
     ConstituentDef { name: "Mm", doodson: [0.0, 1.0, 0.0, -1.0, 0.0], phase: 0.0, node: NodeCorrection::Mm },
     ConstituentDef { name: "Ssa", doodson: [0.0, 0.0, 2.0, 0.0, 0.0], phase: 0.0, node: NodeCorrection::None },
-    ConstituentDef { name: "Sa", doodson: [0.0, 0.0, 1.0, 0.0, 0.0], phase: 0.0, node: NodeCorrection::None },
+    // Sa: argumento h − ps (convención GOT/pyTMD, la misma de los demás
+    // constituyentes de esta tabla). Con [0,0,1,0,0] (solo h) la fase de la
+    // componente anual queda ~283° corrida — bug B2 de la auditoría 2026-07.
+    ConstituentDef { name: "Sa", doodson: [0.0, 0.0, 1.0, 0.0, -1.0], phase: 0.0, node: NodeCorrection::None },
     // Somera
     ConstituentDef { name: "M4", doodson: [4.0, 0.0, 0.0, 0.0, 0.0], phase: 0.0, node: NodeCorrection::M4 },
 ];
@@ -341,11 +344,14 @@ mod tests {
         // Validación decisiva del motor: predicción total contra
         // pyTMD.constituents.arguments (corrections='GOT') para
         // constituyentes realistas de la costa central de Chile.
+        // Cubre los 13 constituyentes de la tabla — incluido Sa, cuya
+        // omisión original escondió el bug B2 (auditoría 2026-07).
         // (name, amplitud m, fase Greenwich grados)
         let cons = [
             ("M2", 0.42, 95.0), ("S2", 0.14, 130.0), ("N2", 0.10, 78.0), ("K2", 0.04, 128.0),
             ("K1", 0.15, 330.0), ("O1", 0.10, 300.0), ("P1", 0.05, 325.0), ("Q1", 0.02, 285.0),
-            ("Mf", 0.02, 100.0), ("Mm", 0.015, 80.0), ("Ssa", 0.03, 200.0), ("M4", 0.01, 60.0),
+            ("Mf", 0.02, 100.0), ("Mm", 0.015, 80.0), ("Ssa", 0.03, 200.0), ("Sa", 0.04, 150.0),
+            ("M4", 0.01, 60.0),
         ];
         let constituents: Vec<Constituent> = cons
             .iter()
@@ -353,25 +359,26 @@ mod tests {
             .collect();
         let (pred, unknown) = TidePredictor::new(&constituents, 0.0);
         assert!(unknown.is_empty());
+        assert_eq!(pred.len(), PRINCIPAL_CONSTITUENTS.len());
 
         // (mjd, h_ref_m) de pyTMD
         let refs = [
-            (46090.5, -0.565410),
-            (51544.0, 0.411367),
-            (55197.25, -0.009716),
-            (58858.6068518, 0.453339),
-            (60000.75, 0.452842),
-            (60310.1, -0.071254),
+            (46090.5, -0.590002),
+            (51544.0, 0.375738),
+            (55197.25, -0.045139),
+            (58858.6068518, 0.421107),
+            (60000.75, 0.447281),
+            (60310.1, -0.106925),
         ];
         let mut max_err = 0.0f64;
         for (mjd, h_ref) in refs {
             let h = pred.predict(mjd);
             max_err = max_err.max((h - h_ref).abs());
         }
-        // El error máximo respecto a pyTMD es ~1.2 mm pese a usar factores
-        // nodales Schureman en vez de las tablas GOT — despreciable para la
-        // corrección de shorelines (1 mm de marea ≈ 1 cm horizontal con
-        // pendiente 0.1, << pixel de 15 m).
+        // El error máximo respecto a pyTMD es de pocos mm pese a usar
+        // factores nodales Schureman en vez de las tablas GOT —
+        // despreciable para la corrección de shorelines (1 mm de marea ≈
+        // 1 cm horizontal con pendiente 0.1, << pixel de 15 m).
         assert!(max_err < 0.003, "error máximo de predicción: {max_err:.4} m");
     }
 

@@ -147,4 +147,34 @@ mod tests {
         let class = predict(&features);
         assert!(class <= CLASS_WATER);
     }
+
+    #[test]
+    fn golden_predictions_match_sklearn() {
+        // Vectores golden generados con el MLPClassifier original de
+        // CoastSat (NN_4classes_Landsat_new.pkl, sklearn.predict), todos
+        // con probabilidad ≥0.999 en su clase — blindan el port contra
+        // regresiones en pesos/orden de features/forward pass.
+        // Formato: 5 bandas, 5 índices, 10 std locales.
+        let water: Vec<f32> = [0.08, 0.09, 0.07, 0.03, 0.02, -0.5, -0.64, -0.4, -0.2, 0.07]
+            .into_iter()
+            .chain(std::iter::repeat(0.005).take(10))
+            .collect();
+        let whitewater: Vec<f32> = [0.30, 0.32, 0.31, 0.28, 0.10, -0.07, -0.52, -0.05, -0.47, -0.02]
+            .into_iter()
+            .chain(std::iter::repeat(0.05).take(10))
+            .collect();
+        let veg: Vec<f32> = [0.04, 0.06, 0.05, 0.35, 0.15, 0.71, 0.43, 0.75, -0.4, -0.11]
+            .into_iter()
+            .chain(std::iter::repeat(0.02).take(10))
+            .collect();
+        let bright: Vec<f32> = [0.18, 0.16, 0.15, 0.20, 0.22, 0.11, 0.16, 0.14, 0.05, 0.09]
+            .into_iter()
+            .chain(std::iter::repeat(0.01).take(10))
+            .collect();
+
+        assert_eq!(predict(&water), CLASS_WATER);
+        assert_eq!(predict(&whitewater), CLASS_WHITEWATER);
+        assert_eq!(predict(&veg), CLASS_OTHER);
+        assert_eq!(predict(&bright), CLASS_OTHER);
+    }
 }

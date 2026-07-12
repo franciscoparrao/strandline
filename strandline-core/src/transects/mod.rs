@@ -102,8 +102,14 @@ pub fn generate_transects(
     let mut transects = Vec::with_capacity(n);
 
     for i in 0..n {
-        // tangente local por diferencias centrales (forward/backward en bordes)
-        let (de, dn) = if i == 0 {
+        // tangente local por diferencias centrales (forward/backward en
+        // bordes). Con un solo punto re-muestreado (línea base más corta
+        // que el spacing) la tangente se toma de la línea base completa.
+        let (de, dn) = if n == 1 {
+            let first = reference_line[0];
+            let last = reference_line[reference_line.len() - 1];
+            (last.0 - first.0, last.1 - first.1)
+        } else if i == 0 {
             (samples[1].0 - samples[0].0, samples[1].1 - samples[0].1)
         } else if i == n - 1 {
             (
@@ -154,6 +160,19 @@ mod tests {
         assert_eq!(s.len(), 5); // 0,25,50,75,100
         assert!((s[1].0 - 25.0).abs() < 1e-9);
         assert!((s[4].0 - 100.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn short_baseline_does_not_panic() {
+        // línea base (50 m) más corta que el spacing (100 m): antes esto
+        // hacía panic por índice fuera de rango (auditoría 2026-07, B1)
+        let line = vec![(0.0, 0.0), (0.0, 50.0)];
+        let ts = generate_transects(&line, 100.0, 400.0, (-1.0, 0.0));
+        assert_eq!(ts.len(), 1);
+        // tangente = norte → transecto horizontal apuntando al oeste
+        let t = &ts[0];
+        assert!(t.end.0 < t.origin.0);
+        assert!((dist(t.origin, t.end) - 400.0).abs() < 1e-9);
     }
 
     #[test]
