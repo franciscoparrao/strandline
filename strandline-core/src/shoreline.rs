@@ -9,7 +9,7 @@ use surtgis_core::io::read_geotiff_bands;
 use surtgis_core::raster::{GeoTransform, Raster};
 
 use crate::classify::{classify_pixels, Classification};
-use crate::cloud::{cloud_mask_from_qa, distance_to_true_px};
+use crate::cloud::{cloud_mask, distance_to_true_px, MaskKind};
 use crate::contour::find_contours;
 use crate::error::{Result, StrandlineError};
 use crate::index::{mndwi, nd_index};
@@ -57,6 +57,8 @@ pub struct ExtractParams {
     /// (default 40, como CoastSat): elimina las falsas nubes de swash/espuma
     /// de CFMASK que fragmentarían la costa. `0` = sin filtro.
     pub cloud_min_size_px: usize,
+    /// Tipo de banda de máscara: QA_PIXEL (Landsat) o SCL (Sentinel-2).
+    pub mask_kind: MaskKind,
 }
 
 impl Default for ExtractParams {
@@ -73,6 +75,7 @@ impl Default for ExtractParams {
             min_beach_area_m2: 500.0,
             dist_clouds_m: 300.0,
             cloud_min_size_px: 40,
+            mask_kind: MaskKind::QaPixel,
         }
     }
 }
@@ -293,7 +296,7 @@ pub fn prepare_scene(
     }
     let cloud_mask = qa
         .as_ref()
-        .map(|q| cloud_mask_from_qa(q, params.cloud_min_size_px));
+        .map(|q| cloud_mask(q, params.mask_kind, params.cloud_min_size_px));
     let ndwi = mndwi(green, swir1, cloud_mask.as_ref());
 
     let classification: Option<Classification> = if use_classifier {
@@ -380,7 +383,7 @@ pub fn extract_shoreline(
     // todo el pipeline en lugar de los bits QA crudos
     let cloud_mask = qa
         .as_ref()
-        .map(|q| cloud_mask_from_qa(q, params.cloud_min_size_px));
+        .map(|q| cloud_mask(q, params.mask_kind, params.cloud_min_size_px));
     let t_read = t0.elapsed().as_secs_f64() * 1000.0;
 
     let t1 = Instant::now();

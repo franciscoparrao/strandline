@@ -396,3 +396,44 @@ Integrada en `profile`: `σ² = σ_fit² + σ_georef² + (∂x/∂t·σ_t)²` co
 de aquí (columna `weight` de `rates`).
 
 60 tests (57 unitarios + 3 de integración), clippy limpio, ambos modos.
+
+---
+
+## ADENDA 4 (2026-07-12) — v0.4 escala: S2 (STAC/COG streaming) + S6 (Sentinel-2)
+
+### S2 — Adquisición cloud-native sin descarga (`strandline fetch`)
+Nuevo subcomando (feature `cloud`, default; desactivable para un binario
+mínimo) sobre la infraestructura de `surtgis-cloud`: búsqueda STAC en
+Planetary Computer (firma SAS automática) y lectura de **solo la ventana**
+del área de interés vía HTTP range requests sobre los COGs. Produce pares
+`*_ms.tif` (5 bandas orden CoastSat, reflectancia f32) + `*_mask.tif`
+compatibles con todo el pipeline validado.
+
+**Demostrado end-to-end**: la ventana de Viña de la escena
+LC08_233083_20200110 son **~870 KB transferidos** (229×234 px) contra ~1 GB
+de la escena completa; `fetch` → `extract --output-epsg 32719` corre sin
+GEE ni descarga previa.
+
+**Hallazgo E4**: el clasificador MLP portado de CoastSat **no transfiere a
+reflectancia superficial** (fue entrenado con TOA de GEE): sobre
+landsat-c2-l2 clasifica ~68% de la ventana como sand y el umbral compat
+colapsa. Para el flujo MPC el modo correcto es el Otsu refinado
+(radiométricamente agnóstico): mediana 9.35 m vs la referencia CoastSat —
+que es una comparación **inter-producto** (SR 30 m vs TOA 15 m), ≈0.3 px,
+dentro de la exactitud absoluta del método (~7–10 m, Vos 2023). Reentrenar
+el clasificador sobre SR queda como trabajo para el paper.
+
+### S6 — Sentinel-2 (`--collection sentinel-2-l2a`, `--mask-kind scl`)
+B02/B03/B04/B08 a 10 m + B11 (20 m) re-muestreado bilinealmente a la grilla
+de 10 m; máscara desde la SCL (clases 3/8/9/10 + filtro de blobs, módulo
+`cloud::cloud_mask_from_scl`). Limitación documentada: el offset BOA de
+−0.1 del processing baseline 04.00 (escenas > 2022-01-25) no se aplica aún.
+
+**Validación**: S2B 2020-01-09 vs L8 2020-01-10 (ambos SR de MPC, 1 día de
+diferencia, marea distinta): **mediana 6.29 m** de consistencia
+inter-misión — dentro de lo reportado por el benchmark de Vos 2023.
+Sentinel-2 además habilita el slope satelital en micro-tidal (hallazgo E3
+de la adenda 3): la densidad S2 baja el ruido efectivo de la serie.
+
+60 tests, clippy limpio (2 warnings restantes son de surtgis-cloud
+upstream), compila con y sin la feature `cloud`.

@@ -421,3 +421,23 @@ benchmark (software + accuracy vs CoastSat + velocidad).
   - Refactor: `select_level` compartido extract/profile (contorneo
     unificado a MNDWI textbook, geométricamente neutro: 0.20/0.19 m).
   - 60 tests (57 + 3 integración), clippy limpio, ambos modos.
+
+- **2026-07-12 (4)**: **v0.4 ESCALA — S2 streaming + S6 Sentinel-2**
+  (adenda 4 de la auditoría).
+  - **S2** (`strandline fetch`, feature `cloud` default): búsqueda STAC en
+    Planetary Computer + lectura de SOLO la ventana del AOI vía COG range
+    requests (surtgis-cloud, firma SAS automática) → pares ms/mask
+    compatibles con el pipeline. Demostrado: ventana de Viña = ~870 KB
+    transferidos vs ~1 GB de escena; fetch→extract sin GEE ni descarga.
+  - **Hallazgo E4**: el MLP de CoastSat NO transfiere a SR (entrenado con
+    TOA de GEE) — en landsat-c2-l2 clasifica 68% como sand. Flujo MPC usa
+    Otsu refinado: 9.35 m vs referencia CoastSat (comparación
+    inter-producto SR-30m vs TOA-15m, ≈0.3 px, dentro de Vos 2023).
+    Reentrenar sobre SR = trabajo del paper.
+  - **S6**: sentinel-2-l2a con B11 20m→10m bilineal y máscara SCL
+    (`--mask-kind scl`, `cloud_mask_from_scl` clases 3/8/9/10).
+    Consistencia inter-misión S2(01-09) vs L8(01-10) desde MPC:
+    **6.29 m** de mediana (1 día de diferencia, marea distinta). S6
+    habilita el slope satelital en micro-tidal (E3). Limitación
+    documentada: offset BOA post-2022 pendiente.
+  - 60 tests, clippy limpio, compila con y sin feature `cloud`.

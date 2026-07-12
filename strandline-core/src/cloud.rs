@@ -19,6 +19,46 @@ use crate::classify::remove_small_objects;
 /// Bits del QA_PIXEL considerados nube (cirrus y cloud, como CoastSat).
 const QA_CLOUD_BITS: u16 = (1 << 2) | (1 << 3);
 
+/// Tipo de banda de máscara de nubes de entrada.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MaskKind {
+    /// QA_PIXEL de Landsat Collection 2 (bits cirrus/cloud).
+    QaPixel,
+    /// Scene Classification Layer de Sentinel-2 L2A (clases nube/sombra).
+    Scl,
+}
+
+/// Construye la máscara de nubes desde la banda de máscara según su tipo,
+/// con el mismo filtro de blobs pequeños en ambos casos.
+pub fn cloud_mask(mask_band: &Raster<u16>, kind: MaskKind, min_size_px: usize) -> Array2<bool> {
+    match kind {
+        MaskKind::QaPixel => cloud_mask_from_qa(mask_band, min_size_px),
+        MaskKind::Scl => cloud_mask_from_scl(mask_band, min_size_px),
+    }
+}
+
+/// Máscara de nubes desde la SCL de Sentinel-2 L2A: clases 3 (sombra de
+/// nube), 8 (nube prob. media), 9 (nube prob. alta) y 10 (cirrus). El
+/// filtro de blobs pequeños aplica igual que en Landsat (el borde de
+/// rompiente también confunde al clasificador de escena de Sen2Cor).
+pub fn cloud_mask_from_scl(scl: &Raster<u16>, min_size_px: usize) -> Array2<bool> {
+    let (rows, cols) = scl.shape();
+    let d = scl.data();
+    let mut mask = Array2::from_elem((rows, cols), false);
+    for r in 0..rows {
+        for c in 0..cols {
+            mask[[r, c]] = matches!(d[[r, c]], 3 | 8 | 9 | 10);
+        }
+    }
+    if min_size_px > 1 {
+        let n_cloud = mask.iter().filter(|&&v| v).count();
+        if n_cloud > 0 && n_cloud < rows * cols {
+            remove_small_objects(&mut mask, min_size_px, false);
+        }
+    }
+    mask
+}
+
 /// Construye la máscara booleana de nubes desde la banda QA_PIXEL,
 /// descartando los blobs menores a `min_size_px` (0 = sin filtro). El
 /// filtro solo se aplica si la máscara tiene mezcla de nube y no-nube

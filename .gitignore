@@ -25,3 +25,6 @@
 *.pyc
 __pycache__/
 /spike/constitucion/intersections_clean.csv
+
+# Ventanas traídas de Planetary Computer (regenerables con strandline fetch)
+/spike/mpc/*.tif

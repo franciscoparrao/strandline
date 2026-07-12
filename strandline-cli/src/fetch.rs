@@ -1,0 +1,271 @@
+//! Subcomando `fetch`: adquisición cloud-native de escenas desde un
+//! catálogo STAC (Microsoft Planetary Computer) **sin descargar las
+//! escenas completas** — solo la ventana del área de interés, vía HTTP
+//! range requests sobre los COGs (S2 del roadmap SOTA).
+//!
+//! Produce por escena el par `*_ms.tif` (5 bandas en orden CoastSat:
+//! B,G,R,NIR,SWIR1, reflectancia f32) + `*_mask.tif` (QA_PIXEL de Landsat
+//! o SCL de Sentinel-2, u16) que consumen `extract`/`profile`.
+//!
+//! Colecciones soportadas:
+//! - `landsat-c2-l2`: reflectancia superficial `DN·0.0000275 − 0.2`,
+//!   30 m, máscara `qa_pixel`.
+//! - `sentinel-2-l2a`: reflectancia `DN/10000` (nota: el offset BOA de
+//!   −0.1 introducido por el processing baseline 04.00 en escenas
+//!   posteriores a 2022-01-25 **no se aplica aún** — para índices
+//!   normalizados el efecto es de segundo orden, documentado), B02/B03/
+//!   B04/B08 a 10 m, B11 (20 m) re-muestreado bilinealmente a la grilla
+//!   de 10 m, máscara `SCL` (nearest).
+
+use std::path::Path;
+
+use anyhow::Context;
+use strandline_core::proj::transform_points;
+use surtgis_cloud::sync_api::{CogReaderBlocking, StacClientBlocking};
+use surtgis_cloud::{BBox, CogReaderOptions, StacCatalog, StacClientOptions, StacSearchParams};
+use surtgis_core::io::{write_geotiff, write_geotiff_stack, GeoTiffOptions};
+use surtgis_core::raster::Raster;
+
+/// Bandas por colección: claves de asset en orden CoastSat + máscara.
+fn collection_assets(collection: &str) -> anyhow::Result<([&'static str; 5], &'static str)> {
+    match collection {
+        "landsat-c2-l2" => Ok((["blue", "green", "red", "nir08", "swir16"], "qa_pixel")),
+        "sentinel-2-l2a" => Ok((["B02", "B03", "B04", "B08", "B11"], "SCL")),
+        other => anyhow::bail!(
+            "colección no soportada: '{other}' (usa landsat-c2-l2 | sentinel-2-l2a)"
+        ),
+    }
+}
+
+/// Reflectancia desde DN según la colección; DN de relleno (0) → NaN.
+fn to_reflectance(collection: &str, dn: f32) -> f32 {
+    if dn == 0.0 {
+        return f32::NAN;
+    }
+    match collection {
+        "landsat-c2-l2" => dn * 0.000_027_5 - 0.2,
+        _ => dn / 10_000.0, // sentinel-2-l2a
+    }
+}
+
+/// Re-muestrea `src` a la grilla de `target` (mismo CRS): para cada píxel
+/// del target evalúa el punto mundo en `src` (bilineal o nearest).
+fn resample_to_grid(src: &Raster<f32>, target: &Raster<f32>, bilinear: bool) -> Raster<f32> {
+    let (rows, cols) = target.shape();
+    let tg = target.transform().to_gdal();
+    let sg = src.transform().to_gdal();
+    let sd = src.data();
+    let (srows, scols) = src.shape();
+    let mut out: Raster<f32> = target.with_same_meta(rows, cols);
+    let od = out.data_mut();
+    for r in 0..rows {
+        for c in 0..cols {
+            // centro del píxel target en mundo (convención pix2world directa)
+            let x = tg[0] + c as f64 * tg[1];
+            let y = tg[3] + r as f64 * tg[5];
+            let sc = (x - sg[0]) / sg[1];
+            let sr = (y - sg[3]) / sg[5];
+            od[[r, c]] = if bilinear {
+                bilin(sd, sr, sc, srows, scols)
+            } else {
+                let ri = sr.round() as isize;
+                let ci = sc.round() as isize;
+                if ri < 0 || ci < 0 || ri >= srows as isize || ci >= scols as isize {
+                    f32::NAN
+                } else {
+                    sd[[ri as usize, ci as usize]]
+                }
+            };
+        }
+    }
+    out
+}
+
+fn bilin(d: &ndarray::Array2<f32>, r: f64, c: f64, rows: usize, cols: usize) -> f32 {
+    if r < 0.0 || c < 0.0 || r > (rows - 1) as f64 || c > (cols - 1) as f64 {
+        return f32::NAN;
+    }
+    let (r0, c0) = (r.floor() as usize, c.floor() as usize);
+    let (r1, c1) = ((r0 + 1).min(rows - 1), (c0 + 1).min(cols - 1));
+    let (fr, fc) = ((r - r0 as f64) as f32, (c - c0 as f64) as f32);
+    let (v00, v01, v10, v11) = (d[[r0, c0]], d[[r0, c1]], d[[r1, c0]], d[[r1, c1]]);
+    if !(v00.is_finite() && v01.is_finite() && v10.is_finite() && v11.is_finite()) {
+        return f32::NAN;
+    }
+    v00 * (1.0 - fr) * (1.0 - fc) + v01 * (1.0 - fr) * fc + v10 * fr * (1.0 - fc) + v11 * fr * fc
+}
+
+/// Ejecuta el fetch. `bbox_lonlat = [oeste, sur, este, norte]`.
+#[allow(clippy::too_many_arguments)]
+pub fn run(
+    collection: &str,
+    bbox_lonlat: [f64; 4],
+    datetime: &str,
+    max_items: usize,
+    max_cloud: f64,
+    out_dir: &Path,
+) -> anyhow::Result<usize> {
+    let (band_keys, mask_key) = collection_assets(collection)?;
+    std::fs::create_dir_all(out_dir)?;
+
+    let client = StacClientBlocking::new(
+        StacCatalog::PlanetaryComputer,
+        StacClientOptions::default(),
+    )
+    .context("creando cliente STAC")?;
+
+    let params = StacSearchParams {
+        bbox: Some(bbox_lonlat.to_vec()),
+        datetime: Some(datetime.to_string()),
+        collections: Some(vec![collection.to_string()]),
+        limit: Some(100),
+        token: None,
+    };
+    let mut items = client.search_all(&params).context("búsqueda STAC")?;
+    items.retain(|it| it.properties.eo_cloud_cover.unwrap_or(0.0) <= max_cloud);
+    // en landsat-c2-l2 solo OLI (L8/L9): evita L7 SLC-off y las bandas TM
+    if collection == "landsat-c2-l2" {
+        items.retain(|it| {
+            it.properties
+                .platform
+                .as_deref()
+                .map(|p| p.contains("landsat-8") || p.contains("landsat-9"))
+                .unwrap_or(false)
+        });
+    }
+    items.sort_by(|a, b| a.properties.datetime.cmp(&b.properties.datetime));
+    items.truncate(max_items);
+    eprintln!(
+        "{}: {} escenas tras filtro de nubes (≤{max_cloud}%)",
+        collection,
+        items.len()
+    );
+
+    let mut written = 0usize;
+    for item in &items {
+        let date = item
+            .properties
+            .datetime
+            .as_deref()
+            .unwrap_or("unknown")
+            .replace(':', "-");
+        let epsg = item
+            .epsg()
+            .with_context(|| format!("{}: item sin proj:epsg", item.id))?;
+
+        // bbox lon/lat → CRS nativo del item (esquinas → envolvente)
+        let corners = [
+            (bbox_lonlat[0], bbox_lonlat[1]),
+            (bbox_lonlat[2], bbox_lonlat[1]),
+            (bbox_lonlat[2], bbox_lonlat[3]),
+            (bbox_lonlat[0], bbox_lonlat[3]),
+        ];
+        let utm = transform_points(&corners, 4326, epsg)
+            .with_context(|| format!("EPSG:{epsg} no soportado para reproyección"))?;
+        let bbox = BBox {
+            min_x: utm.iter().map(|p| p.0).fold(f64::INFINITY, f64::min),
+            min_y: utm.iter().map(|p| p.1).fold(f64::INFINITY, f64::min),
+            max_x: utm.iter().map(|p| p.0).fold(f64::NEG_INFINITY, f64::max),
+            max_y: utm.iter().map(|p| p.1).fold(f64::NEG_INFINITY, f64::max),
+        };
+
+        // leer las 5 bandas (solo la ventana, via range requests)
+        let mut bands: Vec<Raster<f32>> = Vec::with_capacity(5);
+        let mut failed = false;
+        for key in band_keys {
+            let Some(asset) = item.asset(key) else {
+                eprintln!("  {}: sin asset '{key}', escena omitida", item.id);
+                failed = true;
+                break;
+            };
+            let href = client
+                .sign_asset_href(&asset.href, collection)
+                .context("firmando asset")?;
+            let mut reader = CogReaderBlocking::open(&href, CogReaderOptions::default())
+                .with_context(|| format!("abriendo COG {key}"))?;
+            let mut r: Raster<f32> = reader
+                .read_bbox(&bbox, None)
+                .with_context(|| format!("leyendo ventana de {key}"))?;
+            for v in r.data_mut().iter_mut() {
+                *v = to_reflectance(collection, *v);
+            }
+            r.set_nodata(None);
+            bands.push(r);
+        }
+        if failed {
+            continue;
+        }
+
+        // S2: B11 (20 m) a la grilla de 10 m de B03
+        if collection == "sentinel-2-l2a" {
+            let b11 = resample_to_grid(&bands[4], &bands[1], true);
+            bands[4] = b11;
+        }
+        // recortar al shape mínimo común (grillas idénticas → no-op)
+        let min_rows = bands.iter().map(|b| b.shape().0).min().unwrap();
+        let min_cols = bands.iter().map(|b| b.shape().1).min().unwrap();
+        if bands
+            .iter()
+            .any(|b| b.shape() != (min_rows, min_cols))
+        {
+            eprintln!(
+                "  {}: bandas con shapes distintos, se recorta a {min_rows}×{min_cols}",
+                item.id
+            );
+            for b in &mut bands {
+                if b.shape() != (min_rows, min_cols) {
+                    let view = b.data().slice(ndarray::s![..min_rows, ..min_cols]).to_owned();
+                    let mut nb: Raster<f32> = b.with_same_meta(min_rows, min_cols);
+                    *nb.data_mut() = view;
+                    *b = nb;
+                }
+            }
+        }
+
+        // máscara (QA_PIXEL u16 / SCL u16→nearest a 10 m en S2)
+        let mask_raster: Raster<u16> = {
+            let asset = item
+                .asset(mask_key)
+                .with_context(|| format!("{}: sin asset de máscara '{mask_key}'", item.id))?;
+            let href = client.sign_asset_href(&asset.href, collection)?;
+            let mut reader = CogReaderBlocking::open(&href, CogReaderOptions::default())?;
+            if collection == "sentinel-2-l2a" {
+                let scl_f: Raster<f32> = reader.read_bbox(&bbox, None)?;
+                let scl10 = resample_to_grid(&scl_f, &bands[1], false);
+                let (rows, cols) = scl10.shape();
+                let mut out: Raster<u16> = scl10.with_same_meta(rows, cols);
+                let src = scl10.data();
+                let dst = out.data_mut();
+                for ((r, c), v) in src.indexed_iter() {
+                    dst[[r, c]] = if v.is_finite() { *v as u16 } else { 0 };
+                }
+                out
+            } else {
+                reader.read_bbox(&bbox, None)?
+            }
+        };
+
+        // escribir el par ms/mask
+        let stem = format!("{}_{}", &date[..10.min(date.len())], item.id);
+        let ms_path = out_dir.join(format!("{stem}_ms.tif"));
+        let mask_path = out_dir.join(format!("{stem}_mask.tif"));
+        let refs: Vec<&Raster<f32>> = bands.iter().collect();
+        write_geotiff_stack(
+            &refs,
+            Some(&["blue", "green", "red", "nir", "swir1"]),
+            &ms_path,
+            &GeoTiffOptions::default(),
+        )
+        .with_context(|| format!("escribiendo {}", ms_path.display()))?;
+        write_geotiff(&mask_raster, &mask_path, None)
+            .with_context(|| format!("escribiendo {}", mask_path.display()))?;
+        let (rows, cols) = bands[0].shape();
+        eprintln!(
+            "  {} -> {stem}_ms.tif ({rows}×{cols} px, EPSG:{epsg}, nubes {:.1}%)",
+            item.id,
+            item.properties.eo_cloud_cover.unwrap_or(f64::NAN)
+        );
+        written += 1;
+    }
+    Ok(written)
+}

@@ -1,6 +1,9 @@
 //! CLI de strandline. Subcomandos `extract` (shoreline) y `tide`
 //! (predicción y corrección mareal).
 
+#[cfg(feature = "cloud")]
+mod fetch;
+
 use std::path::PathBuf;
 
 use anyhow::Context;
@@ -12,6 +15,7 @@ use strandline_core::transects::{
     compute_intersections, generate_transects, smooth_polyline, transect_name,
     IntersectionSettings, Transect,
 };
+use strandline_core::cloud::MaskKind;
 use strandline_core::shoreline::prepare_scene;
 use strandline_core::slope::{estimate_beach_slope, SlopeSettings};
 use strandline_core::subpixel::{fit_profiles, ProfileSettings};
@@ -68,6 +72,9 @@ enum Command {
         /// Tamaño mínimo (px) de un blob de nube en la máscara; 0 = sin filtro.
         #[arg(long, default_value_t = 40)]
         cloud_min_size: usize,
+        /// Tipo de banda de máscara: qa (Landsat QA_PIXEL) | scl (Sentinel-2 SCL).
+        #[arg(long, default_value = "qa")]
+        mask_kind: String,
         /// EPSG de salida (4326 o UTM WGS84 326xx/327xx). Con 4326 el
         /// GeoJSON es conforme a RFC 7946. Default: CRS nativo de la escena.
         #[arg(long)]
@@ -75,6 +82,30 @@ enum Command {
         /// GeoJSON de salida.
         #[arg(short, long)]
         output: PathBuf,
+    },
+    /// Adquiere escenas desde Planetary Computer leyendo SOLO la ventana
+    /// del área de interés (COG range requests, sin descargar escenas):
+    /// produce pares *_ms.tif + *_mask.tif para extract/profile.
+    #[cfg(feature = "cloud")]
+    Fetch {
+        /// Colección STAC: landsat-c2-l2 | sentinel-2-l2a.
+        #[arg(long)]
+        collection: String,
+        /// Área de interés lon/lat: oeste,sur,este,norte.
+        #[arg(long, value_delimiter = ',', allow_hyphen_values = true)]
+        bbox: Vec<f64>,
+        /// Rango temporal RFC3339: inicio/fin (ej. 2020-01-01/2020-02-01).
+        #[arg(long)]
+        datetime: String,
+        /// Máximo de escenas a traer.
+        #[arg(long, default_value_t = 5)]
+        max_items: usize,
+        /// Nubosidad máxima de escena (%, eo:cloud_cover).
+        #[arg(long, default_value_t = 20.0)]
+        max_cloud: f64,
+        /// Directorio de salida.
+        #[arg(short, long)]
+        out_dir: PathBuf,
     },
     /// Extrae la posición subpixel de la línea de agua por ajuste de
     /// perfil sigmoide en cada transecto (S1: menor varianza y sin sesgo
@@ -105,6 +136,9 @@ enum Command {
         /// Semiancho de la ventana de ajuste (m).
         #[arg(long, default_value_t = 60.0)]
         window: f64,
+        /// Tipo de banda de máscara: qa (Landsat QA_PIXEL) | scl (Sentinel-2 SCL).
+        #[arg(long, default_value = "qa")]
+        mask_kind: String,
         /// RMSE de georreferenciación (m) para la σ combinada.
         #[arg(long, default_value_t = 5.0)]
         georef_rmse: f64,
@@ -252,6 +286,15 @@ enum Command {
         #[arg(short, long)]
         output: PathBuf,
     },
+}
+
+/// Parsea el tipo de máscara desde el flag CLI.
+fn parse_mask_kind(s: &str) -> anyhow::Result<MaskKind> {
+    match s {
+        "qa" => Ok(MaskKind::QaPixel),
+        "scl" => Ok(MaskKind::Scl),
+        other => anyhow::bail!("mask-kind inválido: '{other}' (usa qa|scl)"),
+    }
 }
 
 /// Lee un CSV `shoreline_id, correction_m` a un mapa.
@@ -445,6 +488,7 @@ fn main() -> anyhow::Result<()> {
             min_beach_area,
             dist_clouds,
             cloud_min_size,
+            mask_kind,
             output_epsg,
             output,
         } => {
@@ -460,6 +504,7 @@ fn main() -> anyhow::Result<()> {
                 min_beach_area_m2: min_beach_area,
                 dist_clouds_m: dist_clouds,
                 cloud_min_size_px: cloud_min_size,
+                mask_kind: parse_mask_kind(&mask_kind)?,
             };
             let mut shoreline = extract_shoreline(&ms, mask.as_deref(), &params)
                 .with_context(|| format!("extracting shoreline from {}", ms.display()))?;
@@ -496,6 +541,26 @@ fn main() -> anyhow::Result<()> {
                 t_read + t_mndwi + t_classify + t_otsu + t_contour
             );
         }
+        #[cfg(feature = "cloud")]
+        Command::Fetch {
+            collection,
+            bbox,
+            datetime,
+            max_items,
+            max_cloud,
+            out_dir,
+        } => {
+            anyhow::ensure!(bbox.len() == 4, "bbox necesita 4 valores: oeste,sur,este,norte");
+            let n = fetch::run(
+                &collection,
+                [bbox[0], bbox[1], bbox[2], bbox[3]],
+                &datetime,
+                max_items,
+                max_cloud,
+                &out_dir,
+            )?;
+            eprintln!("{n} escenas escritas en {}", out_dir.display());
+        }
         Command::Profile {
             ms,
             mask,
@@ -505,6 +570,7 @@ fn main() -> anyhow::Result<()> {
             coastsat_compat,
             step,
             window,
+            mask_kind,
             georef_rmse,
             threshold_sigma,
             output,
@@ -513,6 +579,7 @@ fn main() -> anyhow::Result<()> {
                 level,
                 use_classifier: classify || coastsat_compat,
                 coastsat_compat,
+                mask_kind: parse_mask_kind(&mask_kind)?,
                 ..Default::default()
             };
             let scene = prepare_scene(&ms, mask.as_deref(), &params)
