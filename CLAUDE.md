@@ -441,3 +441,16 @@ benchmark (software + accuracy vs CoastSat + velocidad).
     habilita el slope satelital en micro-tidal (E3). Limitación
     documentada: offset BOA post-2022 pendiente.
   - 60 tests, clippy limpio, compila con y sin feature `cloud`.
+
+- **2026-07-12 (5)**: **Offset BOA de Sentinel-2 corregido** (cierre del
+  backlog v0.4, adenda 5 de la auditoría). `fetch` aplica DN−1000 cuando
+  el `s2:processing_baseline` del item STAC es ≥ 04.00 (BOA_ADD_OFFSET
+  del 2022-01-25), con fallback por fecha de adquisición si la property
+  falta — se decide por baseline y no por fecha porque ESA reprocesa
+  escenas antiguas con baselines nuevos. **Validado empírico** con escena
+  real 2024 de Viña (baseline 05.10): reflectancia de agua consistente
+  con la escena control 2020 (MNDWI agua 0.445 vs 0.415); sin el fix el
+  MNDWI de agua colapsaba a ~0.07 en silencio. Extract end-to-end OK
+  sobre la escena 2024 (8 líneas, umbral 0.043). Desbloquea series S2
+  densas que cruzan 2022 → experimento slope satelital en micro-tidal
+  (E3+S6). 63 tests, clippy limpio.

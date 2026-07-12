@@ -10,12 +10,13 @@
 //! Colecciones soportadas:
 //! - `landsat-c2-l2`: reflectancia superficial `DN·0.0000275 − 0.2`,
 //!   30 m, máscara `qa_pixel`.
-//! - `sentinel-2-l2a`: reflectancia `DN/10000` (nota: el offset BOA de
-//!   −0.1 introducido por el processing baseline 04.00 en escenas
-//!   posteriores a 2022-01-25 **no se aplica aún** — para índices
-//!   normalizados el efecto es de segundo orden, documentado), B02/B03/
-//!   B04/B08 a 10 m, B11 (20 m) re-muestreado bilinealmente a la grilla
-//!   de 10 m, máscara `SCL` (nearest).
+//! - `sentinel-2-l2a`: reflectancia `(DN + offset)/10000`, donde el
+//!   offset es −1000 para escenas con processing baseline ≥ 04.00
+//!   (`BOA_ADD_OFFSET`, introducido el 2022-01-25) y 0 antes — se decide
+//!   por el `s2:processing_baseline` del item STAC, no por la fecha,
+//!   porque ESA reprocesa escenas antiguas con baselines nuevos.
+//!   B02/B03/B04/B08 a 10 m, B11 (20 m) re-muestreado bilinealmente a la
+//!   grilla de 10 m, máscara `SCL` (nearest).
 
 use std::path::Path;
 
@@ -38,13 +39,30 @@ fn collection_assets(collection: &str) -> anyhow::Result<([&'static str; 5], &'s
 }
 
 /// Reflectancia desde DN según la colección; DN de relleno (0) → NaN.
-fn to_reflectance(collection: &str, dn: f32) -> f32 {
+/// `dn_offset` solo aplica a sentinel-2-l2a (ver [`s2_dn_offset`]).
+fn to_reflectance(collection: &str, dn: f32, dn_offset: f32) -> f32 {
     if dn == 0.0 {
         return f32::NAN;
     }
     match collection {
         "landsat-c2-l2" => dn * 0.000_027_5 - 0.2,
-        _ => dn / 10_000.0, // sentinel-2-l2a
+        _ => (dn + dn_offset) / 10_000.0, // sentinel-2-l2a
+    }
+}
+
+/// Offset de DN para Sentinel-2 L2A: el processing baseline 04.00 sumó
+/// +1000 a los DN (`BOA_ADD_OFFSET = −1000`); sin restarlo la
+/// reflectancia queda corrida +0.1 y el MNDWI sale mal en silencio.
+/// Se decide por `s2:processing_baseline` (las escenas antiguas pueden
+/// venir reprocesadas con baseline nuevo); si el item no trae la
+/// property, cae al corte por fecha de adquisición (2022-01-25).
+fn s2_dn_offset(baseline: Option<&str>, datetime: Option<&str>) -> f32 {
+    if let Some(b) = baseline.and_then(|s| s.trim().parse::<f64>().ok()) {
+        return if b >= 4.0 { -1000.0 } else { 0.0 };
+    }
+    match datetime {
+        Some(dt) if dt >= "2022-01-25" => -1000.0,
+        _ => 0.0,
     }
 }
 
@@ -153,6 +171,31 @@ pub fn run(
             .epsg()
             .with_context(|| format!("{}: item sin proj:epsg", item.id))?;
 
+        let dn_offset = if collection == "sentinel-2-l2a" {
+            let baseline = item
+                .properties
+                .extra
+                .get("s2:processing_baseline")
+                .and_then(|v| v.as_str());
+            if baseline.is_none() {
+                eprintln!(
+                    "  {}: sin s2:processing_baseline, offset BOA decidido por fecha",
+                    item.id
+                );
+            }
+            let off = s2_dn_offset(baseline, item.properties.datetime.as_deref());
+            if off != 0.0 {
+                eprintln!(
+                    "  {}: baseline {} → offset BOA −0.1 aplicado",
+                    item.id,
+                    baseline.unwrap_or("?")
+                );
+            }
+            off
+        } else {
+            0.0
+        };
+
         // bbox lon/lat → CRS nativo del item (esquinas → envolvente)
         let corners = [
             (bbox_lonlat[0], bbox_lonlat[1]),
@@ -187,7 +230,7 @@ pub fn run(
                 .read_bbox(&bbox, None)
                 .with_context(|| format!("leyendo ventana de {key}"))?;
             for v in r.data_mut().iter_mut() {
-                *v = to_reflectance(collection, *v);
+                *v = to_reflectance(collection, *v, dn_offset);
             }
             r.set_nodata(None);
             bands.push(r);
@@ -268,4 +311,39 @@ pub fn run(
         written += 1;
     }
     Ok(written)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn s2_offset_por_baseline() {
+        // el baseline manda, no la fecha (escenas viejas reprocesadas)
+        assert_eq!(s2_dn_offset(Some("04.00"), Some("2019-06-01T14:00:00Z")), -1000.0);
+        assert_eq!(s2_dn_offset(Some("05.11"), None), -1000.0);
+        assert_eq!(s2_dn_offset(Some("03.01"), Some("2023-06-01T14:00:00Z")), 0.0);
+        assert_eq!(s2_dn_offset(Some("02.14"), None), 0.0);
+    }
+
+    #[test]
+    fn s2_offset_fallback_por_fecha() {
+        // sin baseline (o ilegible) decide la fecha de adquisición
+        assert_eq!(s2_dn_offset(None, Some("2022-01-24T23:59:59Z")), 0.0);
+        assert_eq!(s2_dn_offset(None, Some("2022-01-25T00:00:01Z")), -1000.0);
+        assert_eq!(s2_dn_offset(Some("N/A"), Some("2023-01-01T00:00:00Z")), -1000.0);
+        assert_eq!(s2_dn_offset(None, None), 0.0);
+    }
+
+    #[test]
+    fn reflectancia_s2_con_y_sin_offset() {
+        // pre-04.00: DN 5000 → 0.5; post: DN 6000 − 1000 → 0.5
+        assert!((to_reflectance("sentinel-2-l2a", 5000.0, 0.0) - 0.5).abs() < 1e-6);
+        assert!((to_reflectance("sentinel-2-l2a", 6000.0, -1000.0) - 0.5).abs() < 1e-6);
+        // DN 0 sigue siendo nodata aunque haya offset
+        assert!(to_reflectance("sentinel-2-l2a", 0.0, -1000.0).is_nan());
+        // landsat ignora el offset
+        let l = to_reflectance("landsat-c2-l2", 40000.0, -1000.0);
+        assert!((l - (40000.0 * 0.000_027_5 - 0.2)).abs() < 1e-6);
+    }
 }

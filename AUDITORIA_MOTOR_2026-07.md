@@ -426,8 +426,15 @@ el clasificador sobre SR queda como trabajo para el paper.
 ### S6 — Sentinel-2 (`--collection sentinel-2-l2a`, `--mask-kind scl`)
 B02/B03/B04/B08 a 10 m + B11 (20 m) re-muestreado bilinealmente a la grilla
 de 10 m; máscara desde la SCL (clases 3/8/9/10 + filtro de blobs, módulo
-`cloud::cloud_mask_from_scl`). Limitación documentada: el offset BOA de
-−0.1 del processing baseline 04.00 (escenas > 2022-01-25) no se aplica aún.
+`cloud::cloud_mask_from_scl`). ~~Limitación documentada: el offset BOA de
+−0.1 del processing baseline 04.00 (escenas > 2022-01-25) no se aplica
+aún.~~ **Cerrado (2026-07-12, adenda 5)**: offset aplicado según
+`s2:processing_baseline` del item STAC (≥ 04.00 → DN−1000), con fallback
+por fecha de adquisición si la property falta. Validado con escena real
+2024 de Viña (baseline 05.10): reflectancia de agua consistente con la
+escena 2020 (green 0.026 vs 0.020, MNDWI 0.445 vs 0.415) — sin el fix
+habría quedado green≈0.126 y MNDWI≈0.07 (contraste colapsado en
+silencio). 3 tests unitarios nuevos.
 
 **Validación**: S2B 2020-01-09 vs L8 2020-01-10 (ambos SR de MPC, 1 día de
 diferencia, marea distinta): **mediana 6.29 m** de consistencia
