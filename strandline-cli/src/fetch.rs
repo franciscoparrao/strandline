@@ -126,9 +126,16 @@ pub fn run(
     let (band_keys, mask_key) = collection_assets(collection)?;
     std::fs::create_dir_all(out_dir)?;
 
+    // El cap de paginación del cliente (default 100) debe superar a
+    // max_items ANTES del filtro de nubes — si no, en series largas la
+    // búsqueda se queda con la primera página (los items más recientes)
+    // y descarta el resto en silencio.
     let client = StacClientBlocking::new(
         StacCatalog::PlanetaryComputer,
-        StacClientOptions::default(),
+        StacClientOptions {
+            max_items: (max_items.saturating_mul(10)).max(1000),
+            ..StacClientOptions::default()
+        },
     )
     .context("creando cliente STAC")?;
 
@@ -212,7 +219,18 @@ pub fn run(
             max_y: utm.iter().map(|p| p.1).fold(f64::NEG_INFINITY, f64::max),
         };
 
-        // leer las 5 bandas (solo la ventana, via range requests)
+        // reanudación: si el par ms/mask ya existe, no re-descargar
+        let stem = format!("{}_{}", &date[..10.min(date.len())], item.id);
+        let ms_path = out_dir.join(format!("{stem}_ms.tif"));
+        let mask_path = out_dir.join(format!("{stem}_mask.tif"));
+        if ms_path.exists() && mask_path.exists() {
+            eprintln!("  {}: ya existe, omitida", item.id);
+            written += 1;
+            continue;
+        }
+
+        // leer las 5 bandas (solo la ventana, via range requests);
+        // un error de red en una escena la omite, no aborta el batch
         let mut bands: Vec<Raster<f32>> = Vec::with_capacity(5);
         let mut failed = false;
         for key in band_keys {
@@ -224,11 +242,24 @@ pub fn run(
             let href = client
                 .sign_asset_href(&asset.href, collection)
                 .context("firmando asset")?;
-            let mut reader = CogReaderBlocking::open(&href, CogReaderOptions::default())
-                .with_context(|| format!("abriendo COG {key}"))?;
-            let mut r: Raster<f32> = reader
-                .read_bbox(&bbox, None)
-                .with_context(|| format!("leyendo ventana de {key}"))?;
+            let r: anyhow::Result<Raster<f32>> = CogReaderBlocking::open(
+                &href,
+                CogReaderOptions::default(),
+            )
+            .with_context(|| format!("abriendo COG {key}"))
+            .and_then(|mut reader| {
+                reader
+                    .read_bbox(&bbox, None)
+                    .with_context(|| format!("leyendo ventana de {key}"))
+            });
+            let mut r = match r {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("  {}: {e:#}, escena omitida", item.id);
+                    failed = true;
+                    break;
+                }
+            };
             for v in r.data_mut().iter_mut() {
                 *v = to_reflectance(collection, *v, dn_offset);
             }
@@ -266,10 +297,10 @@ pub fn run(
         }
 
         // máscara (QA_PIXEL u16 / SCL u16→nearest a 10 m en S2)
-        let mask_raster: Raster<u16> = {
+        let mask_result: anyhow::Result<Raster<u16>> = (|| {
             let asset = item
                 .asset(mask_key)
-                .with_context(|| format!("{}: sin asset de máscara '{mask_key}'", item.id))?;
+                .with_context(|| format!("sin asset de máscara '{mask_key}'"))?;
             let href = client.sign_asset_href(&asset.href, collection)?;
             let mut reader = CogReaderBlocking::open(&href, CogReaderOptions::default())?;
             if collection == "sentinel-2-l2a" {
@@ -282,16 +313,20 @@ pub fn run(
                 for ((r, c), v) in src.indexed_iter() {
                     dst[[r, c]] = if v.is_finite() { *v as u16 } else { 0 };
                 }
-                out
+                Ok(out)
             } else {
-                reader.read_bbox(&bbox, None)?
+                Ok(reader.read_bbox(&bbox, None)?)
+            }
+        })();
+        let mask_raster = match mask_result {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!("  {}: {e:#}, escena omitida", item.id);
+                continue;
             }
         };
 
         // escribir el par ms/mask
-        let stem = format!("{}_{}", &date[..10.min(date.len())], item.id);
-        let ms_path = out_dir.join(format!("{stem}_ms.tif"));
-        let mask_path = out_dir.join(format!("{stem}_mask.tif"));
         let refs: Vec<&Raster<f32>> = bands.iter().collect();
         write_geotiff_stack(
             &refs,

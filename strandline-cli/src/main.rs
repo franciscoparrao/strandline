@@ -233,7 +233,7 @@ enum Command {
         /// Mínimo de observaciones válidas por transecto.
         #[arg(long, default_value_t = 30)]
         min_valid: usize,
-        /// CSV de salida (transect, slope, peak_freq_cpd, energy_ratio, n).
+        /// CSV de salida (transect, slope, peak_freq_cpd, energy_ratio, tide_sign, n).
         #[arg(short, long)]
         output: PathBuf,
     },
@@ -830,7 +830,7 @@ fn main() -> anyhow::Result<()> {
                 min_valid,
                 ..Default::default()
             };
-            let mut out = String::from("transect,slope,peak_freq_cpd,energy_ratio,n\n");
+            let mut out = String::from("transect,slope,peak_freq_cpd,energy_ratio,tide_sign,n\n");
             let mut n_ok = 0usize;
             let mut slopes = Vec::new();
             for (tname, mut obs) in by_transect {
@@ -842,8 +842,8 @@ fn main() -> anyhow::Result<()> {
                     n_ok += 1;
                     slopes.push(est.slope);
                     out.push_str(&format!(
-                        "{},{:.4},{:.6},{:.4},{}\n",
-                        tname, est.slope, est.peak_freq_cpd, est.energy_ratio, est.n
+                        "{},{:.4},{:.6},{:.4},{:+.0},{}\n",
+                        tname, est.slope, est.peak_freq_cpd, est.energy_ratio, est.tide_sign, est.n
                     ));
                 }
             }

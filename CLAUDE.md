@@ -454,3 +454,24 @@ benchmark (software + accuracy vs CoastSat + velocidad).
   sobre la escena 2024 (8 líneas, umbral 0.043). Desbloquea series S2
   densas que cruzan 2022 → experimento slope satelital en micro-tidal
   (E3+S6). 63 tests, clippy limpio.
+
+- **2026-07-12 (6)**: **E3 SUPERADO — slope satelital en micro-tidal con
+  S2 denso + hallazgo E5 corregido** (adenda 5 de la auditoría).
+  - **Robustez de `fetch`**: cap de paginación STAC silencioso corregido
+    (pedías 600 escenas, llegaban las 42 más recientes); escena con error
+    HTTP transitorio se omite en vez de abortar el batch; reanudación
+    (salta pares ms/mask existentes).
+  - **Hallazgo E5 (bug del motor, corregido)**: `estimate_beach_slope`
+    asumía chainage creciente con la marea (convención del pickle del
+    paper, transectos mar→tierra); con los transectos nativos
+    (tierra→mar) toda corrección agregaba energía y el barrido escapaba
+    al borde (38/75 en el máximo). Fix: barrido pendiente × signo, campo
+    `tide_sign` en la salida. La adenda 3 no lo vio porque usó las
+    intersecciones del paper.
+  - **Experimento** (flujo 100% nativo, 215 escenas S2 2019–2025 de Viña
+    vía fetch, GOT5.5 real reinstalado y validado exacto vs pickle):
+    regresión directa **0.0967**, espectral crudo **0.105**, espectral
+    con despike 3-MAD **0.0725** — vs 0.10 de literatura del paper. La
+    densidad S2 hace identificable el slope donde solo-Landsat falla
+    (E3): resultado de paper. Artefactos en `spike/slope_s2/`.
+  - 63 tests, clippy limpio.

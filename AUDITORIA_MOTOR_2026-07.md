@@ -444,3 +444,65 @@ de la adenda 3): la densidad S2 baja el ruido efectivo de la serie.
 
 60 tests, clippy limpio (2 warnings restantes son de surtgis-cloud
 upstream), compila con y sin la feature `cloud`.
+
+---
+
+## ADENDA 5 (2026-07-12) — offset BOA, robustez de fetch, y E3 superado con S2
+
+### Offset BOA (cierre) + robustez de `fetch`
+El offset BOA quedó cerrado (ver nota tachada en la adenda 4). En el camino
+salieron dos defectos reales de `fetch`, ambos corregidos:
+
+- **Cap de paginación silencioso**: `StacClientOptions::default()` limita
+  `search_all` a 100 items ANTES del filtro de nubes, y MPC devuelve los
+  más recientes primero → pedir 600 escenas de 2019–2025 devolvía 42 de
+  2024–2025 sin aviso. Fix: el cliente se dimensiona según `--max-items`
+  (`max(10×, 1000)`).
+- **Batch frágil**: un error HTTP transitorio en una banda abortaba el
+  fetch completo (murió en la escena 59/215). Fix: la escena que falla se
+  omite con aviso y el batch continúa; además reanudación (si el par
+  ms/mask ya existe, se salta) — un refetch tras interrupción no
+  re-descarga nada.
+
+### Hallazgo E5 (bug, corregido): `slope` asumía la orientación del transecto
+`estimate_beach_slope` corregía con `x − h/slope`, que solo remueve señal
+si el chainage CRECE con la marea — la convención de los datos del paper
+(transectos efectivamente mar→tierra: regresión chainage~tide +0.86 m/m
+en el pickle). Los transectos que genera `generate_transects` van
+tierra→mar (chainage DECRECE con marea alta: regresión −8.86 m/m en la
+serie S2), y con esa orientación **toda corrección agregaba energía → el
+barrido escapaba al borde del rango** (38/75 transectos en el máximo).
+El experimento de la adenda 3 no lo detectó porque usó las intersecciones
+del paper (convención +). Fix: el barrido evalúa pendiente × signo y
+reporta `tide_sign` en la salida; el flujo nativo completo
+(fetch→extract→transects→profile→slope) queda auto-consistente. Test del
+caso invertido agregado al sintético.
+
+### Experimento E3+S6: slope satelital en micro-tidal CON Sentinel-2
+La predicción de E3 (adenda 3) era que la densidad S2 habilitaría el
+slope en Viña donde solo-Landsat falla. **Confirmado**:
+
+- Serie: 215 escenas S2 2019–2025 (nubes ≤20%) vía `fetch` (con el offset
+  BOA aplicado a las post-2022), ventana de los transectos del paper.
+- Flujo 100% nativo: baseline auto-referenciada (escena clara 2024-12-28)
+  → 75 transectos suavizados → `profile` (215/215 escenas OK, 13334
+  observaciones) → marea GOT5.5 real (pyTMD reinstalado; reproduce el
+  pickle del paper exacto) → `slope`.
+- **Resultados** (vs 0.10 de literatura usado en el paper):
+  - Regresión directa chainage~tide (diagnóstico): **0.0967** (61/75
+    transectos con signo coherente).
+  - Espectral (post-E5), crudo: mediana **0.105** (bordes 15/75, antes
+    38/75).
+  - Espectral con despike 3-MAD previo: mediana **0.0725**; señal clara
+    (energy_ratio<0.85) en 48/75 transectos (vs 29 sin despike).
+- La señal mareal horizontal (~±3.7 m con marea σ=0.365 m) ES visible en
+  S2 pese al scatter de ~12.6 m: la densidad (215 fechas en 7 años vs ~31
+  Landsat/año útiles) y el pixel de 10 m compensan. E3 queda como
+  limitación *de Landsat-only*, no del método.
+- Recomendación operativa: despike previo mejora la coherencia
+  (44/75 signos correctos vs 30/75) — candidato a `--despike` en el CLI
+  de slope.
+- Artefactos: `spike/slope_s2/` (slopes, transectos, mareas, scripts;
+  intersecciones gzip).
+
+63 tests (60 + 3 de fetch), clippy limpio.

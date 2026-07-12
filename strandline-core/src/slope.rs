@@ -49,6 +49,12 @@ pub struct SlopeEstimate {
     /// óptimo / energía sin corrección); valores ≪ 1 indican señal mareal
     /// fuerte bien removida.
     pub energy_ratio: f64,
+    /// Signo de la respuesta del chainage a la marea: `+1` si el chainage
+    /// crece con marea alta (transectos mar→tierra, convención del paper
+    /// de referencia), `-1` si decrece (transectos tierra→mar, los que
+    /// genera `generate_transects`). Se elige el que minimiza la energía
+    /// residual — la orientación del transecto no es un supuesto.
+    pub tide_sign: f64,
     /// Observaciones usadas.
     pub n: usize,
 }
@@ -191,12 +197,19 @@ pub fn estimate_beach_slope(
         return None;
     }
 
-    let mut best = (f64::INFINITY, settings.candidates[0]);
+    // barrido sobre pendiente × signo de la respuesta mareal: el chainage
+    // puede crecer o decrecer con la marea según la orientación del
+    // transecto (mar→tierra vs tierra→mar); asumir un signo fijo hace que
+    // con la orientación contraria toda corrección AGREGUE energía y el
+    // óptimo escape al borde del rango (hallazgo E5).
+    let mut best = (f64::INFINITY, settings.candidates[0], 1.0);
     for &slope in &settings.candidates {
-        let corrected: Vec<f64> = (0..n).map(|i| x_dt[i] - h[i] / slope).collect();
-        let e = band_energy(&corrected);
-        if e < best.0 {
-            best = (e, slope);
+        for sign in [1.0, -1.0] {
+            let corrected: Vec<f64> = (0..n).map(|i| x_dt[i] - sign * h[i] / slope).collect();
+            let e = band_energy(&corrected);
+            if e < best.0 {
+                best = (e, slope, sign);
+            }
         }
     }
 
@@ -204,6 +217,7 @@ pub fn estimate_beach_slope(
         slope: best.1,
         peak_freq_cpd: peak,
         energy_ratio: best.0 / e_uncorrected,
+        tide_sign: best.2,
         n,
     })
 }
@@ -257,9 +271,25 @@ mod tests {
                 est.slope,
                 est.energy_ratio
             );
+            assert_eq!(est.tide_sign, 1.0);
             // la corrección con el slope correcto debe remover la mayor
             // parte de la energía mareal
             assert!(est.energy_ratio < 0.35, "ratio = {}", est.energy_ratio);
+
+            // misma serie con la orientación de transecto opuesta
+            // (tierra→mar: el chainage DECRECE con marea alta) — el
+            // estimador debe recuperar el mismo slope con signo -1, no
+            // escapar al borde del rango (E5)
+            let x_flip: Vec<f64> = x.iter().map(|v| -v).collect();
+            let est_f = estimate_beach_slope(&t, &x_flip, &h, &SlopeSettings::default())
+                .expect("estimación (invertida) falló");
+            assert!(
+                (est_f.slope - slope_true).abs() <= 0.01,
+                "slope_true {slope_true} invertido: estimado {}",
+                est_f.slope
+            );
+            assert_eq!(est_f.tide_sign, -1.0);
+            assert!(est_f.energy_ratio < 0.35);
         }
     }
 
