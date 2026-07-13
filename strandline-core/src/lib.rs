@@ -10,6 +10,7 @@
 //! directamente a los índices fraccionales `(col, row)` del contorno,
 //! sin offset de medio píxel.
 
+pub mod baseline;
 pub mod classify;
 pub mod cloud;
 pub mod contour;

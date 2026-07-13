@@ -475,3 +475,25 @@ benchmark (software + accuracy vs CoastSat + velocidad).
     densidad S2 hace identificable el slope donde solo-Landsat falla
     (E3): resultado de paper. Artefactos en `spike/slope_s2/`.
   - 63 tests, clippy limpio.
+
+- **2026-07-12 (7)**: **Ergonomía pre-release** (adenda 6 de la
+  auditoría): dos asperezas que el propio experimento de (6) expuso.
+  - `slope --despike-max-change`: reutiliza `rates::despike` (validado
+    exacto vs el paper) sobre el chainage antes del barrido espectral —
+    el experimento mostró que mejora la coherencia del signo (30/75 →
+    44/75).
+  - **Subcomando `baseline`** (nuevo módulo `strandline-core::baseline`):
+    elige automáticamente la mejor línea base entre las escenas de
+    `fetch`, reemplazando el script ad hoc que en (6) requirió
+    intervención manual. Dos heurísticas ingenuas descartadas con datos
+    reales antes del diseño final: "más vértices totales" (elige la
+    escena más ruidosa) y "menos fragmentos sin más" (eligió una escena
+    de 224 m/1 fragmento sobre alternativas de 9-16 km) — el criterio
+    final es longitud del fragmento más largo penalizada por raíz
+    cuadrada del número de fragmentos, más un segundo filtro de largo
+    (`--min-length`) porque `extract_shoreline` no re-filtra por largo
+    los trozos que corta el buffer de nubes (paridad CoastSat). Validado
+    end-to-end: sobre la serie real de Viña eligió una escena de 9307 m/4
+    fragmentos → 74 transectos, contra los 75 obtenidos fijando la
+    escena a mano.
+  - 69 tests (63 + 6 de `baseline`), clippy limpio.

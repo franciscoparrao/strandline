@@ -176,6 +176,51 @@ enum Command {
         #[arg(short, long)]
         output: PathBuf,
     },
+    /// Elige automáticamente la mejor línea base entre varias escenas
+    /// candidatas (p.ej. la salida de `fetch`) y la escribe en el formato
+    /// que consume `transects --baseline`. Prioriza continuidad (menos
+    /// polilíneas separadas = menos nubes/ruido) por sobre longitud total
+    /// — la heurística ingenua "más vértices" elige la escena más
+    /// fragmentada, no la más limpia.
+    Baseline {
+        /// Directorio con pares `*_ms.tif` + `*_mask.tif` (salida de
+        /// `fetch` o layout equivalente).
+        #[arg(long)]
+        dir: PathBuf,
+        /// Banda Green (1-based).
+        #[arg(long, default_value_t = 2)]
+        green_band: usize,
+        /// Banda NIR (1-based).
+        #[arg(long, default_value_t = 4)]
+        nir_band: usize,
+        /// Banda SWIR1 (1-based).
+        #[arg(long, default_value_t = 5)]
+        swir1_band: usize,
+        /// Largo mínimo de línea en metros — descarta contornos de ruido
+        /// (nubes, artefactos) antes de contar fragmentos por escena; con
+        /// 0 la heurística se degrada (una escena casi toda nube puede
+        /// "ganar" por tener pocos fragmentos diminutos).
+        #[arg(long, default_value_t = 200.0)]
+        min_length: f64,
+        /// Umbral MNDWI fijo (default: Otsu automático).
+        #[arg(long)]
+        level: Option<f32>,
+        /// Usa el clasificador de píxeles.
+        #[arg(long)]
+        classify: bool,
+        /// Replica el quirk de umbral de CoastSat (implica --classify).
+        #[arg(long)]
+        coastsat_compat: bool,
+        /// Buffer de exclusión alrededor de nubes (m); 0 = off.
+        #[arg(long, default_value_t = 300.0)]
+        dist_clouds: f64,
+        /// Tipo de banda de máscara: qa (Landsat QA_PIXEL) | scl (Sentinel-2 SCL).
+        #[arg(long, default_value = "qa")]
+        mask_kind: String,
+        /// CSV de salida (easting, northing) para `transects --baseline`.
+        #[arg(short, long)]
+        output: PathBuf,
+    },
     /// Genera transectos perpendiculares (shore-normal) a una línea base.
     Transects {
         /// CSV de la línea base (columnas: easting, northing).
@@ -233,6 +278,16 @@ enum Command {
         /// Mínimo de observaciones válidas por transecto.
         #[arg(long, default_value_t = 30)]
         min_valid: usize,
+        /// Salto máximo (m) entre observaciones consecutivas antes de aplicar
+        /// despiking (mismo algoritmo que `rates`); 0 = desactivado. El
+        /// experimento de Viña con S2 mostró que el ruido de intersección
+        /// degrada la coherencia del signo estimado (30/75 → 44/75 con
+        /// despike previo).
+        #[arg(long, default_value_t = 0.0)]
+        despike_max_change: f64,
+        /// Mínimo de observaciones válidas para aplicar despiking.
+        #[arg(long, default_value_t = 30)]
+        despike_min_valid: usize,
         /// CSV de salida (transect, slope, peak_freq_cpd, energy_ratio, tide_sign, n).
         #[arg(short, long)]
         output: PathBuf,
@@ -704,6 +759,81 @@ fn main() -> anyhow::Result<()> {
                 output.display()
             );
         }
+        Command::Baseline {
+            dir,
+            green_band,
+            nir_band,
+            swir1_band,
+            min_length,
+            level,
+            classify,
+            coastsat_compat,
+            dist_clouds,
+            mask_kind,
+            output,
+        } => {
+            let params = ExtractParams {
+                green_band,
+                nir_band,
+                swir1_band,
+                min_length_m: min_length,
+                level,
+                refine_radius_px: 10,
+                use_classifier: classify || coastsat_compat,
+                coastsat_compat,
+                min_beach_area_m2: 500.0,
+                dist_clouds_m: dist_clouds,
+                cloud_min_size_px: 40,
+                mask_kind: parse_mask_kind(&mask_kind)?,
+            };
+
+            let mut ms_paths: Vec<PathBuf> = std::fs::read_dir(&dir)
+                .with_context(|| format!("leyendo directorio {}", dir.display()))?
+                .filter_map(|e| e.ok().map(|e| e.path()))
+                .filter(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.ends_with("_ms.tif")))
+                .collect();
+            ms_paths.sort();
+            anyhow::ensure!(!ms_paths.is_empty(), "sin escenas *_ms.tif en {}", dir.display());
+
+            let mut candidates = Vec::new();
+            for ms in &ms_paths {
+                let stem = ms.file_name().unwrap().to_string_lossy();
+                let label = stem.strip_suffix("_ms.tif").unwrap_or(&stem).to_string();
+                let mask = ms.with_file_name(format!("{label}_mask.tif"));
+                let mask_opt = mask.exists().then_some(mask.as_path());
+                match extract_shoreline(ms, mask_opt, &params) {
+                    Ok(shoreline) => {
+                        if let Some(cand) = strandline_core::baseline::evaluate_candidate(
+                            label.clone(),
+                            &shoreline.lines,
+                            min_length,
+                        ) {
+                            eprintln!(
+                                "  {label}: {} fragmentos, {:.0} m el más largo",
+                                cand.n_fragments, cand.arc_length_m
+                            );
+                            candidates.push(cand);
+                        } else {
+                            eprintln!("  {label}: sin líneas extraídas, omitida");
+                        }
+                    }
+                    Err(e) => eprintln!("  {label}: extract falló ({e:#}), omitida"),
+                }
+            }
+            anyhow::ensure!(!candidates.is_empty(), "ninguna escena produjo una shoreline utilizable");
+
+            let chosen = strandline_core::baseline::select_baseline(candidates)
+                .context("selección de línea base falló inesperadamente")?;
+            strandline_core::baseline::write_baseline_csv(&chosen.line, &output)
+                .with_context(|| format!("escribiendo {}", output.display()))?;
+            eprintln!(
+                "elegida: {} ({} fragmentos, {:.0} m) -> {}",
+                chosen.label,
+                chosen.n_fragments,
+                chosen.arc_length_m,
+                output.display()
+            );
+        }
         Command::Transects {
             baseline,
             spacing,
@@ -775,6 +905,8 @@ fn main() -> anyhow::Result<()> {
             dates,
             tides,
             min_valid,
+            despike_max_change,
+            despike_min_valid,
             output,
         } => {
             // fechas (MJD) por shoreline
@@ -836,8 +968,11 @@ fn main() -> anyhow::Result<()> {
             for (tname, mut obs) in by_transect {
                 obs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
                 let t: Vec<f64> = obs.iter().map(|o| o.0).collect();
-                let x: Vec<f64> = obs.iter().map(|o| o.1).collect();
+                let mut x: Vec<f64> = obs.iter().map(|o| o.1).collect();
                 let h: Vec<f64> = obs.iter().map(|o| o.2).collect();
+                if despike_max_change > 0.0 {
+                    x = despike(&x, despike_max_change, despike_min_valid);
+                }
                 if let Some(est) = estimate_beach_slope(&t, &x, &h, &settings) {
                     n_ok += 1;
                     slopes.push(est.slope);

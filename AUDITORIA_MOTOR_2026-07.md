@@ -506,3 +506,51 @@ slope en Viña donde solo-Landsat falla. **Confirmado**:
   intersecciones gzip).
 
 63 tests (60 + 3 de fetch), clippy limpio.
+
+---
+
+## ADENDA 6 (2026-07-12) — ergonomía post-experimento: despike en `slope` + `baseline` automática
+
+Dos asperezas que el propio experimento de la adenda 5 expuso, resueltas
+antes de empaquetar para publicación:
+
+### `slope --despike-max-change`
+Reutiliza `rates::despike` (ya validado exacto vs el paper) sobre el
+chainage por transecto antes del barrido espectral. El experimento
+mostró que el despike previo mejora la coherencia del signo estimado
+(30/75 → 44/75 transectos con `tide_sign` consistente). Sin este flag,
+un usuario tenía que despikear a mano fuera del engine.
+
+### Subcomando `baseline` (selección automática de línea base)
+`fetch` trae series de decenas a cientos de escenas; elegir a mano cuál
+usar de línea base para `transects` (como tuve que hacer en la adenda 5,
+fijando la escena a mano tras descartar la auto-seleccionada por un
+script ad hoc) no escala. Nuevo módulo `strandline-core::baseline` +
+subcomando `strandline baseline --dir <fetch_output>`.
+
+**Dos heurísticas ingenuas descartadas con datos reales** (215 escenas S2
+de Viña) antes de llegar al diseño final:
+1. "Más vértices totales" (el script ad hoc de la adenda 5): elige el
+   contorno más ruidoso, no el más limpio.
+2. "Menos fragmentos, sin más" (primera versión de este módulo): eligió
+   una escena de **224 m con 1 fragmento** por sobre alternativas de
+   9–16 km con un puñado de piezas legítimas — sobre-corrección que
+   descarta cobertura real.
+
+**Diseño final**: longitud del fragmento más largo, penalizada por raíz
+cuadrada del número de fragmentos (`arc_length_m / sqrt(n_fragments)`) —
+penaliza con fuerza creciente la fragmentación patológica (cientos de
+trozos = escena mayormente nube) sin castigar de más un puñado de piezas
+adicionales razonables. Además, un segundo filtro de largo
+(`--min-length`, default 200 m como `extract`) descarta trocitos de
+ruido antes de contar fragmentos — necesario porque `extract_shoreline`
+parte las polilíneas por el buffer de nubes DESPUÉS del filtro de largo
+y no re-filtra los trozos resultantes (paridad intencional con CoastSat).
+
+**Validación end-to-end**: sobre la serie real de Viña, `baseline`
+eligió automáticamente una escena de 9307 m / 4 fragmentos →
+`transects` generó 74 transectos (vs 75 obtenidos fijando la escena a
+mano en la adenda 5) — la automatización reproduce el resultado manual
+sin intervención.
+
+69 tests (63 + 6 de `baseline`), clippy limpio.
