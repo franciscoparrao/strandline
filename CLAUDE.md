@@ -497,3 +497,18 @@ benchmark (software + accuracy vs CoastSat + velocidad).
     fragmentos → 74 transectos, contra los 75 obtenidos fijando la
     escena a mano.
   - 69 tests (63 + 6 de `baseline`), clippy limpio.
+
+- **2026-07-12 (8)**: **Los 6 casos del paper, validados** (adenda 7 de
+  la auditoría) — Arica, Coquimbo, Valdivia y Chiloé cerrados sin ningún
+  cambio de código, usando los `{SITE}_analysis.pkl` del paper (Viña y
+  Constitución ya estaban validados desde V1/v0.2). Transectos exactos a
+  micrómetros (100/100, 334/334, 334/334, 316/316); tasas NSM/SCE/EPR a
+  ~5e-5 m, LRR/R²/CI95 a ~1e-6; **0 mismatches de QC en los 4 sitios**
+  (259/1054 transectos evaluados). El motor generaliza sin ajuste a
+  geometrías muy distintas (desierto, estuario, archipiélago
+  macro-tidal) y a un salto coseísmico real (Illapel 2015, Coquimbo) sin
+  caso especial en el código. WLR no exacto por falta de `satname` en
+  estos pickles (mismo límite de datos que E1, no del estimador —
+  mediana 0.01–0.29 m/año según mezcla Landsat/S2 del sitio). Con esto
+  los 6 sitios del plan de benchmark del paper C&G quedan validados
+  end-to-end. Artefactos en `spike/multisite/`. 69 tests (sin cambios).

@@ -554,3 +554,54 @@ mano en la adenda 5) — la automatización reproduce el resultado manual
 sin intervención.
 
 69 tests (63 + 6 de `baseline`), clippy limpio.
+
+---
+
+## ADENDA 7 (2026-07-12) — validación multi-sitio: los 6 casos del paper cerrados
+
+El plan de benchmark del paper C&G prometía exactitud vs CoastSat en 6
+sitios de Chile. Hasta esta adenda solo Viña del Mar (V1) y Constitución
+(v0.2) estaban validados; esta adenda cierra los 4 restantes: **Arica,
+Coquimbo, Valdivia, Chiloé** — sin ningún cambio de código, usando los
+`{SITE}_analysis.pkl` de `propuesta-4-erosion-costera/output/` (script
+`13_site_analysis.py` del paper, generalización del método de Viña).
+
+**Limitación de datos conocida** (igual que Constitución, hallazgo E1):
+estos pickles no retienen `satname` por fecha (solo el `*_output.pkl`
+crudo por sitio lo tenía, y esos no se conservaron en disco) → WLR no es
+comparable exacto sin pesos por satélite reales. NSM/SCE/EPR/LRR/R²/CI95
+y la decisión QC no dependen de esos pesos y sí deben coincidir exacto.
+
+**Metodología**: `reference_shoreline` del pickle (ya suavizada, misma
+fórmula bin+`uniform_filter1d` que Viña) → `strandline transects
+--spacing 100 --length 500 --seaward-e=-1 --seaward-n=0` → comparar
+contra el dict `transects` del pickle. `cross_distance_clean` del pickle
+(ya despikeado, `MAX_CROSS_CHANGE=40`, mismo algoritmo que
+`rates::despike`) + fechas → `strandline rates --qc` con los umbrales de
+`filter_config` de cada sitio → comparar contra `rates_all` (columnas
+NSM/SCE/EPR/LRR/R²/CI95 y `excluded`).
+
+| Sitio | Transectos (match/error máx) | Tasas (comparados/n_valid/QC mismatch) | Notas |
+|---|---|---|---|
+| Arica (desértico) | 100/100, 2 µm | 100/0/0 | costa recta, sin sismo |
+| Coquimbo (Illapel 2015) | 334/334, 7 µm | 159/0/0 | columnas coseísmicas propias del script, fuera del scope de `rates` |
+| Valdivia (estuarios) | 334/334, 35 µm | 303/0/0 | — |
+| Chiloé (macro-tidal) | 316/316, 7 µm | 261/0/0 | el sitio macro-tidal que S4/E3 señalaba como candidato para slope satelital identificable incluso solo-Landsat |
+
+Error máximo en NSM/SCE/EPR: ~5e-5 m (redondeo del CSV, igual que Viña);
+LRR/R²/CI95: ~1e-6. **0 mismatches de QC en los 4 sitios** (259/1054
+transectos evaluados). El motor generaliza sin ajuste a geometrías muy
+distintas (bahía angosta desértica, estuario, archipiélago macro-tidal)
+y a un evento sísmico con salto coseísmico real (Illapel 2015 en
+Coquimbo, sin caso especial en el código).
+
+**WLR sin `satname`** (esperado no-exacto, caracterizado igual que E1):
+mediana de diferencia 0.01–0.29 m/año según sitio (Arica/Coquimbo bajo,
+Valdivia/Chiloé más alto — consistente con mayor mezcla Landsat+S2 en el
+sur). Confirma que E1 es un límite de los datos retenidos, no del
+estimador (ya validado exacto con pesos reales en Viña/Constitución).
+
+Con esto, **los 6 casos del plan de benchmark del paper están validados**
+end-to-end (transects + tasas + QC). Artefactos en `spike/multisite/`
+(script + `rates_rust.csv` + intersecciones gzip por sitio). Sin cambios
+al motor — 69 tests siguen vigentes.
