@@ -9,7 +9,11 @@
 //!
 //! Colecciones soportadas:
 //! - `landsat-c2-l2`: reflectancia superficial `DN·0.0000275 − 0.2`,
-//!   30 m, máscara `qa_pixel`.
+//!   30 m, máscara `qa_pixel`. Cubre el archivo completo 1984–presente:
+//!   TM (L4/L5), ETM+ (L7), OLI (L8/L9) — mismos nombres de asset común
+//!   (`blue`, `nir08`, `swir16`, ...) y mismo escalado de reflectancia
+//!   para los tres sensores en Planetary Computer (verificado contra el
+//!   catálogo STAC real). Filtrable por `--sensors`.
 //! - `sentinel-2-l2a`: reflectancia `(DN + offset)/10000`, donde el
 //!   offset es −1000 para escenas con processing baseline ≥ 04.00
 //!   (`BOA_ADD_OFFSET`, introducido el 2022-01-25) y 0 antes — se decide
@@ -66,6 +70,25 @@ fn s2_dn_offset(baseline: Option<&str>, datetime: Option<&str>) -> f32 {
     }
 }
 
+/// Filtro de sensor Landsat por `platform` STAC (`landsat-4/5/7/8/9`).
+/// `sensors` es uno de `tm` (L4/L5), `etm` (L7), `oli` (L8/L9), `all`.
+/// `None` (item sin `platform`) nunca pasa, salvo que el filtro sea
+/// inaplicable (colecciones no-Landsat no llaman a esta función).
+fn sensor_allowed(platform: Option<&str>, sensors: &str) -> bool {
+    let Some(p) = platform else { return false };
+    match sensors {
+        "all" => true,
+        "tm" => p.contains("landsat-4") || p.contains("landsat-5"),
+        "etm" => p.contains("landsat-7"),
+        "oli" => p.contains("landsat-8") || p.contains("landsat-9"),
+        _ => false,
+    }
+}
+
+/// Fecha (inclusive) desde la que las escenas Landsat-7 ETM+ llevan las
+/// franjas de datos faltantes por la falla del Scan Line Corrector.
+const L7_SLC_FAILURE_DATE: &str = "2003-05-31";
+
 /// Re-muestrea `src` a la grilla de `target` (mismo CRS): para cada píxel
 /// del target evalúa el punto mundo en `src` (bilineal o nearest).
 fn resample_to_grid(src: &Raster<f32>, target: &Raster<f32>, bilinear: bool) -> Raster<f32> {
@@ -114,6 +137,7 @@ fn bilin(d: &ndarray::Array2<f32>, r: f64, c: f64, rows: usize, cols: usize) -> 
 }
 
 /// Ejecuta el fetch. `bbox_lonlat = [oeste, sur, este, norte]`.
+/// `sensors` (`tm`|`etm`|`oli`|`all`) solo aplica a `landsat-c2-l2`.
 #[allow(clippy::too_many_arguments)]
 pub fn run(
     collection: &str,
@@ -121,9 +145,17 @@ pub fn run(
     datetime: &str,
     max_items: usize,
     max_cloud: f64,
+    sensors: &str,
+    skip_l7_slc: bool,
     out_dir: &Path,
 ) -> anyhow::Result<usize> {
     let (band_keys, mask_key) = collection_assets(collection)?;
+    if collection == "landsat-c2-l2" {
+        anyhow::ensure!(
+            matches!(sensors, "tm" | "etm" | "oli" | "all"),
+            "--sensors debe ser uno de: tm, etm, oli, all (recibido '{sensors}')"
+        );
+    }
     std::fs::create_dir_all(out_dir)?;
 
     // El cap de paginación del cliente (default 100) debe superar a
@@ -148,15 +180,19 @@ pub fn run(
     };
     let mut items = client.search_all(&params).context("búsqueda STAC")?;
     items.retain(|it| it.properties.eo_cloud_cover.unwrap_or(0.0) <= max_cloud);
-    // en landsat-c2-l2 solo OLI (L8/L9): evita L7 SLC-off y las bandas TM
     if collection == "landsat-c2-l2" {
-        items.retain(|it| {
-            it.properties
-                .platform
-                .as_deref()
-                .map(|p| p.contains("landsat-8") || p.contains("landsat-9"))
-                .unwrap_or(false)
-        });
+        items.retain(|it| sensor_allowed(it.properties.platform.as_deref(), sensors));
+        if skip_l7_slc {
+            items.retain(|it| {
+                let is_l7 = it.properties.platform.as_deref().is_some_and(|p| p.contains("landsat-7"));
+                let post_failure = it
+                    .properties
+                    .datetime
+                    .as_deref()
+                    .is_some_and(|dt| dt >= L7_SLC_FAILURE_DATE);
+                !(is_l7 && post_failure)
+            });
+        }
     }
     items.sort_by(|a, b| a.properties.datetime.cmp(&b.properties.datetime));
     items.truncate(max_items);
@@ -351,6 +387,28 @@ pub fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sensor_allowed_por_grupo() {
+        assert!(sensor_allowed(Some("landsat-4"), "tm"));
+        assert!(sensor_allowed(Some("landsat-5"), "tm"));
+        assert!(!sensor_allowed(Some("landsat-7"), "tm"));
+        assert!(sensor_allowed(Some("landsat-7"), "etm"));
+        assert!(!sensor_allowed(Some("landsat-8"), "etm"));
+        assert!(sensor_allowed(Some("landsat-8"), "oli"));
+        assert!(sensor_allowed(Some("landsat-9"), "oli"));
+        assert!(!sensor_allowed(Some("landsat-5"), "oli"));
+        for p in ["landsat-4", "landsat-5", "landsat-7", "landsat-8", "landsat-9"] {
+            assert!(sensor_allowed(Some(p), "all"));
+        }
+        assert!(!sensor_allowed(None, "all"), "sin platform nunca pasa, ni con 'all'");
+    }
+
+    #[test]
+    fn l7_slc_failure_date_es_el_limite_correcto() {
+        // referencia: fallo del SLC el 2003-05-31 (CoastSat skip_L7_SLC)
+        assert_eq!(L7_SLC_FAILURE_DATE, "2003-05-31");
+    }
 
     #[test]
     fn s2_offset_por_baseline() {

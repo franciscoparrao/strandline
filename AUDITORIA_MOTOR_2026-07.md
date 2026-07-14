@@ -605,3 +605,52 @@ Con esto, **los 6 casos del plan de benchmark del paper están validados**
 end-to-end (transects + tasas + QC). Artefactos en `spike/multisite/`
 (script + `rates_rust.csv` + intersecciones gzip por sitio). Sin cambios
 al motor — 69 tests siguen vigentes.
+
+---
+
+## ADENDA 8 (2026-07-13) — `fetch`: archivo Landsat completo (TM/ETM+/OLI)
+
+Origen: `TASK_fetch_full_landsat_archive.md`. `fetch` sobre `landsat-c2-l2`
+solo devolvía OLI (L8/L9) — un filtro hardcodeado excluía TM (L4/L5,
+1984–2013) y ETM+ (L7, 1999+), bloqueando el reanálisis multidecadal sin
+GEE. Verificado contra el catálogo STAC real de Planetary Computer: los
+nombres de asset comunes (`blue`, `nir08`, `swir16`, ...) y el escalado
+de reflectancia SR (`DN·0.0000275 − 0.2`) son **idénticos** para TM/ETM+/
+OLI — el único cambio necesario era el filtro.
+
+**Cambios**: `--sensors <tm|etm|oli|all>` (default `all` — cambio de
+comportamiento intencional: antes el filtro L8/L9 estaba implícito y sin
+flag) + `--skip-l7-slc` (excluye ETM+ posterior a la falla del Scan Line
+Corrector, 2003-05-31; default no excluir, igual que CoastSat con
+`skip_L7_SLC=False` — `extract` ya tolera los huecos vía DN 0 → NaN).
+Valor de `--sensors` inválido falla explícito, no en silencio.
+
+**Validación contra los 4 criterios de aceptación del task**:
+1. `fetch --sensors all` sobre Viña 2005-01 a 2005-04 devuelve 10
+   escenas (mezcla L5/L7) — antes devolvía 0.
+2. `extract --coastsat-compat` sobre la escena L5 2005-01-07 traída por
+   `fetch` vs la misma fecha desde los `ms.tif` de GEE en
+   `/mnt/kingston/VINA_DEL_MAR/L5/ms/`: **mediana 15.7-16.6 m** de
+   distancia punto-a-línea dentro del área común a ambos extents
+   (comparación inter-producto: SR nativo 30 m de `fetch` vs pansharpened
+   15 m de GEE — la extensión de cada extent difiere, por eso hay que
+   acotar al bbox común; sin acotar, restos de línea fuera del área
+   compartida de la otra fuente inflan la media/p90 sin ser desacuerdo
+   real). Sub-pixel del producto nativo, consistente con el resto de
+   comparaciones inter-producto del proyecto (E4, S6).
+3. `--sensors etm` sobre Viña 2005 devuelve 7 escenas; agregar
+   `--skip-l7-slc` las excluye las 7 (todas post-2003-05-31) → 0.
+4. Sin regresión: `--sensors oli` y Sentinel-2 siguen funcionando igual
+   (S2 no pasa por este filtro, guardado por `collection ==
+   "landsat-c2-l2"`).
+
+**Hallazgo lateral**: `/mnt/kingston` retiene, para Viña, el
+`VINA_DEL_MAR_output.pkl` crudo con `satname` por fecha (779 fechas:
+L5=333, L7=75, L8=279, L9=92) — el dato que faltaba para el hallazgo E1
+(WLR exacto en Constitución/multisitio). Pendiente de explotar si se
+revisita ese gap. No se encontraron datos de entrenamiento reales
+(polígonos etiquetados) del clasificador de CoastSat en el disco — el
+reentrenamiento sobre SR (bloqueo para el estudio nacional) sigue
+requiriendo etiquetado nuevo, en pausa por decisión explícita.
+
+71 tests (69 + 2 de `fetch`), clippy limpio.

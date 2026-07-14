@@ -512,3 +512,26 @@ benchmark (software + accuracy vs CoastSat + velocidad).
   mediana 0.01–0.29 m/año según mezcla Landsat/S2 del sitio). Con esto
   los 6 sitios del plan de benchmark del paper C&G quedan validados
   end-to-end. Artefactos en `spike/multisite/`. 69 tests (sin cambios).
+
+- **2026-07-13**: **`fetch` cubre el archivo Landsat completo (TM/ETM+/
+  OLI)** (adenda 8) — origen `TASK_fetch_full_landsat_archive.md`,
+  bloqueaba el reanálisis multidecadal (1984–2025) sin GEE. El filtro
+  hardcodeado a L8/L9 era lo único que faltaba: los nombres de asset y
+  el escalado de reflectancia SR ya son idénticos para TM/ETM+/OLI
+  (verificado contra el catálogo STAC real). Flags nuevos:
+  `--sensors <tm|etm|oli|all>` (default `all` — cambio de comportamiento
+  intencional) y `--skip-l7-slc` (excluye ETM+ post-falla del SLC,
+  2003-05-31; default no excluir). Validado contra los 4 criterios del
+  task: fetch de Viña 2005 devuelve 10 escenas L5/L7 (antes 0);
+  `extract --coastsat-compat` sobre L5 fetch vs la misma fecha desde
+  `ms.tif` de GEE en `/mnt/kingston` da mediana 15.7-16.6 m dentro del
+  bbox común (comparación inter-producto SR-30m vs pansharpened-15m,
+  sub-pixel); `--skip-l7-slc` excluye correctamente 7/7 escenas ETM+ de
+  2005; sin regresión en OLI/S2. **Hallazgo lateral**: `/mnt/kingston`
+  retiene el `VINA_DEL_MAR_output.pkl` crudo con `satname` (779 fechas)
+  — resolvería el hallazgo E1 (WLR exacto) si se revisita; no se
+  encontraron datos de entrenamiento reales del clasificador CoastSat en
+  disco (polígonos etiquetados) — el reentrenamiento sobre SR para el
+  estudio nacional sigue bloqueado en etiquetado nuevo, pausado por
+  decisión explícita del usuario. 71 tests (69 + 2 de `fetch`), clippy
+  limpio.

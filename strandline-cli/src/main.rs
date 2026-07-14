@@ -85,7 +85,9 @@ enum Command {
     },
     /// Adquiere escenas desde Planetary Computer leyendo SOLO la ventana
     /// del área de interés (COG range requests, sin descargar escenas):
-    /// produce pares *_ms.tif + *_mask.tif para extract/profile.
+    /// produce pares *_ms.tif + *_mask.tif para extract/profile. Para
+    /// landsat-c2-l2, cubre el archivo completo 1984–presente (TM/ETM+/
+    /// OLI) — ver --sensors.
     #[cfg(feature = "cloud")]
     Fetch {
         /// Colección STAC: landsat-c2-l2 | sentinel-2-l2a.
@@ -103,6 +105,18 @@ enum Command {
         /// Nubosidad máxima de escena (%, eo:cloud_cover).
         #[arg(long, default_value_t = 20.0)]
         max_cloud: f64,
+        /// Sensores Landsat a incluir (solo aplica a landsat-c2-l2):
+        /// tm (L4/L5), etm (L7), oli (L8/L9), all. Con `all` se accede al
+        /// archivo Landsat completo 1984–presente vía STAC/COG streaming,
+        /// sin depender de GEE.
+        #[arg(long, default_value = "all")]
+        sensors: String,
+        /// Excluye escenas Landsat-7 ETM+ posteriores a la falla del
+        /// Scan Line Corrector (2003-05-31, franjas de datos faltantes).
+        /// Por default se incluyen: `extract` ya tolera los huecos (DN 0
+        /// → NaN) igual que hace CoastSat con `skip_L7_SLC=False`.
+        #[arg(long)]
+        skip_l7_slc: bool,
         /// Directorio de salida.
         #[arg(short, long)]
         out_dir: PathBuf,
@@ -603,6 +617,8 @@ fn main() -> anyhow::Result<()> {
             datetime,
             max_items,
             max_cloud,
+            sensors,
+            skip_l7_slc,
             out_dir,
         } => {
             anyhow::ensure!(bbox.len() == 4, "bbox necesita 4 valores: oeste,sur,este,norte");
@@ -612,6 +628,8 @@ fn main() -> anyhow::Result<()> {
                 &datetime,
                 max_items,
                 max_cloud,
+                &sensors,
+                skip_l7_slc,
                 &out_dir,
             )?;
             eprintln!("{n} escenas escritas en {}", out_dir.display());
