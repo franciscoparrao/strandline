@@ -735,3 +735,163 @@ benchmark (software + accuracy vs CoastSat + velocidad).
       igual de válido si nunca se hubiera tocado `profile`/`extract`
       --subpixel-refine — se encontró como efecto colateral de la
       validación, no del refinamiento en sí.
+
+- **2026-07-17 (2)**: **Investigación de estado del arte 2023-2026** (deep
+  research, 107 agentes, 24 fuentes, 25 claims verificadas 3-voto) para
+  actualizar el backlog S1-S9 de `AUDITORIA_MOTOR_2026-07.md` y contrastar
+  el hallazgo de transectos dinámicos vs fijos de esta sesión.
+  - **S3 (DL segmentation)**: CoastSeg/Doodleverse ya tiene SegFormer para
+    el mismo esquema de 4 clases (water/whitewater/sediment/other), pero
+    sus propios autores (Fitzpatrick et al. 2024, JOSS) dicen que no está
+    validado en campo todavía. Sin ruta ONNX (persiste en TF/.h5) — la vía
+    pura-Rust real es **Candle** (HuggingFace), no `tract` como decía el
+    audit original.
+  - **S5 (incertidumbre)**: conformal prediction sigue vigente; hay algo
+    más nuevo — **GeoConformal Prediction** (Lou et al. 2025, AAG),
+    ponderación geográfica, código abierto (`geoconformal` en Python),
+    supera a bootstrap (93.67% vs 81% cobertura). Confianza media (voto
+    2-1, no unánime).
+  - **S7 (analítica temporal)**: **confirmado como práctica activa, no
+    solo teoría** — Warrick, Vos y Buscombe (creadores de CoastSat/
+    CoastSeg) publicaron 2025 (JGR) STL + análisis espectral + clustering
+    sobre 7777 transectos/777km de California (22 años CoastSat): ~90% de
+    los transectos tienen ciclos estacionales significativos, y la
+    erosión NO es uniformemente invernal (59% invierno, >30% primavera/
+    verano) — desafía el supuesto DSAS lineal. **PELT/BEAST específicamente
+    sin evidencia de uso en SDS** (claims que lo vinculaban, refutadas).
+  - **S8 (wave runup/setup)**: sigue **genuinamente abierto** — revisión
+    sistemática 2026 (MDPI) documenta split metodológico activo sin
+    consenso (corregir solo setup vs. setup+runup, depende del sitio). No
+    hay librería estándar (`py-wave-runup` como "estándar" fue refutado).
+  - **S6 (fusión multisensor)**: cuantificado — Vos et al. 2023 documenta
+    shift sistemático hacia el mar de 4.7 m (CoastSat) / 8 m (SHOREX) al
+    pasar Landsat→S2; S2 no supera consistentemente a Landsat (depende del
+    sitio, peor en Duck, mejor en Narrabeen).
+  - **Gap nuevo**: los estudios operacionales de mayor escala (Shoreline
+    Monitor global, extensión Atlántico europeo 2024 de Castelle et al.)
+    usan **transectos fijos con espaciado por latitud + suavizado espacial
+    post-hoc**, no regeneración dinámica por escena — evidencia indirecta,
+    no concluyente.
+  - **Sobre el hallazgo propio de transectos dinámicos vs fijos** (adenda
+    10): **no se encontró literatura que lo confirme ni lo contradiga**,
+    ni en SHOREX/SAET (Pardo-Pascual) ni en otros grupos. La búsqueda
+    explícitamente no logró acceder al corpus específico de Pardo-Pascual
+    sobre este punto — laguna de evidencia, no confirmación de novedad.
+    Pendiente: búsqueda dirigida antes de reclamarlo como aporte original
+    en el paper C&G.
+  - **Claims refutadas en verificación adversarial** (no citar): Rbeast/
+    BEAST validado en SDS, `py-wave-runup` como estándar reproducible,
+    sesgo SWIR-1↔wave-runup R²=0.69, bias de ~10m de S2 en el estudio
+    europeo, "CoastSat sigue siendo MLP clásico confirma que S1 sigue
+    abierto" (matiz, no simplemente falso).
+  - **Decisión**: seguir con S7 (STL) primero — reusa lo ya construido
+    (series por transecto), validado a escala por el propio grupo de
+    referencia, sin dependencias pesadas nuevas.
+
+- **2026-07-17 (3)**: **S7 implementado — descomposición STL de series de
+  transecto**. Nuevo módulo `strandline-core::stl` + subcomando CLI
+  `strandline stl`. Reusa la infraestructura de `rates` (mismo CSV de
+  `intersections`/`dates`, `read_date_weights`, agrupación por transecto).
+  - **Diseño**: las series satelitales son de muestreo irregular (nubes,
+    revisita desigual Landsat/S2); STL clásico (Cleveland et al. 1990)
+    asume muestreo regular. Se resamplea a grilla mensual (media de
+    observaciones por mes calendario, interpolación lineal en huecos,
+    recortada a `[primer, último]` mes con dato real — sin extrapolar en
+    los bordes) antes de aplicar STL con periodo 12. Usa el crate `stlrs`
+    0.4 (MIT/Unlicense, implementa el algoritmo real, publicado justo
+    2026-07-07) en vez de reimplementar LOESS iterativo desde cero —
+    criterio de reuso consistente con `ndarray`/`rayon` (dependencias
+    externas para machinery estadística/numérica general, reimplementación
+    propia solo donde es el diferenciador del proyecto, como `tide`).
+  - **Salida**: CSV largo (`transect,month,trend_m,seasonal_m,residual_m,
+    interpolated`) + resumen a stderr (n transectos descompuestos, amplitud
+    estacional mediana). `StlResult` expone también `seasonal_variance_frac`
+    (fracción de la varianza de corto plazo explicada por el estacional,
+    proxy de "significancia estacional" en el espíritu de Warrick et al.
+    2025).
+  - **Validado**: 5 tests nuevos (recupera amplitud estacional conocida de
+    una senoidal sintética con ruido y muestreo irregular tipo satélite;
+    distingue una serie sin estacionalidad real, `<6 m` vs `>8 m` con
+    estacionalidad real; casos borde de serie corta/vacía; interpolación de
+    huecos mensuales). 77 tests totales (72+5), `extract_integration` y
+    `pixel_locking` OK, clippy limpio. Smoke test manual con 2 transectos
+    sintéticos (6 años, ~110 fechas irregulares): T001 con amplitud
+    estacional real de 20 m recuperó 19.12 m; T002 sin estacionalidad
+    (solo tendencia+ruido) dio 2.47 m — separación clara y correcta.
+  - **Corrido sobre datos reales de Viña (2026-07-17, mismo día) — hallazgo
+    honesto: Viña NO replica el patrón de Warrick et al. 2025**. Se
+    construyeron `intersections.csv`/`dates.csv` desde
+    `VINA_DEL_MAR_tidal_corrected.pkl` (179 transectos, 770 fechas reales,
+    47303 observaciones) y se corrió `strandline stl` completo.
+    - Con `cross_distance_uncorrected`: amplitud estacional mediana
+      60.85 m (muy sesgada — media 163 m, p90 487 m), solo **9% de los
+      transectos con `seasonal_variance_frac > 0.5`** (vs ~90% "con ciclo
+      estacional significativo" en California). Con
+      `cross_distance_corrected` (misma serie con corrección mareal
+      aplicada): prácticamente igual (66.00 m mediana) — confirma el
+      hallazgo ya documentado (V1) de que la marea no domina el SCE de
+      Viña. Restringiendo a los 72 transectos QC-retenidos del paper
+      (filtrando ruido/artefactos): mejora algo pero sigue lejos (47.31 m
+      mediana, 11% con frac>0.5, 39% del retroceso máximo cae en invierno
+      austral jun-ago vs ~59% invierno en California).
+    - **Hipótesis ENSO probada y REFUTADA** (2026-07-17, mismo día): se
+      cruzó el residuo STL (promedio across los 72 transectos QC-buenos
+      por mes, misma lógica "along-coast mean" que usa el propio script
+      del paper) contra el índice ONI real, usando el resultado ya
+      guardado en `VINA_DEL_MAR_enso_analysis.pkl` (371 meses,
+      `climate_merged`). **Correlación residuo-STL vs ONI: r=-0.038 en
+      lag 0 (p=0.46, no significativo); mejor lag 12 meses da r=-0.109
+      (p=0.04, apenas significativo) — explica como máximo 1.2% de la
+      varianza del residuo**. El propio análisis ENSO del paper
+      (correlación con la anomalía cruda, no con mi residuo STL) también
+      es débil: r=-0.103, p=0.047, mejor lag -4 meses r=-0.129. **ENSO NO
+      es el responsable de la baja `seasonal_variance_frac` de Viña** — la
+      hipótesis inicial (variabilidad ENSO cayendo en el residuo) queda
+      descartada por datos, no confirmada.
+    - **Estado actual, honesto**: el módulo/CLI funcionan correctamente
+      (validado sintético + corrió sin errores sobre 47K observaciones
+      reales + la correlación en sí se calculó bien). Lo que queda sin
+      explicar es POR QUÉ Viña no muestra el patrón estacional dominante
+      de California — ni la marea (V1, ya descartada), ni el filtro QC,
+      ni ENSO (recién descartado) lo explican. Candidatos no probados
+      todavía: ruido de múltiples intersecciones por transecto (ya
+      documentado como causa del SCE~500m), sesgo inter-sensor
+      Landsat/Sentinel-2 (4.7-8 m sistemático, adenda de investigación
+      SOTA), o variabilidad de tormentas de escala sub-mensual que ONI
+      mensual no captura. **No asumir la explicación ENSO en el paper sin
+      volver a probarla** — quedó descartada explícitamente, no
+      confirmada.
+    - **Candidato 1 probado — coherencia espacial del residuo entre
+      transectos vecinos**: correlación pairwise de residuos entre los 72
+      transectos QC-buenos, en función de la distancia (índice de
+      transecto, ~100 m de spacing). Global: media r=0.059 (casi
+      independiente). Pero transectos vecinos (distancia ≤2, ~200 m)
+      correlacionan más (media r=0.193) que transectos lejanos (distancia
+      ≥20, ~2 km): media r=0.053. Hay estructura espacial real (no es
+      ruido puramente independiente por transecto), pero no distingue
+      entre "proceso costero local real" y "artefacto compartido por
+      escena" (transectos vecinos ven la misma imagen).
+    - **Candidato 2 probado y CONFIRMADO (fuerte)** — ruido inter-sensor:
+      se recuperó `VINA_DEL_MAR_output.pkl` crudo de `/mnt/kingston`
+      (779 fechas con `satname`: L5=333, L7=75, L8=279, L9=92 — resuelve
+      parcialmente el hallazgo E1 de la adenda 8). Se asignó el satélite
+      dominante por mes y se comparó la varianza del residuo STL por
+      sensor. **Test de Levene: L8 (n=120) std=5.04 m vs L5+L7+L9
+      combinados (n=255) std=8.74 m — razón de varianza 3.01×, p=0.0001**
+      (ANOVA de medias no significativo, p=0.42 — no es un sesgo
+      sistemático de nivel, es una diferencia real de PRECISIÓN). L8 es
+      ~3× más preciso que el resto. Esto **sí explica una fracción
+      sustancial del residuo** — mucho más que ENSO (1.2%) — y es
+      consistente con el hallazgo de la investigación SOTA del mismo día
+      (Vos et al. 2023: sesgo sistemático inter-misión Landsat/Sentinel-2,
+      4.7-8 m) extendido a diferencias INTRA-Landsat (L5/L7/L8/L9 entre
+      sí, no solo Landsat-vs-S2).
+    - **Conclusión de la cadena de hipótesis**: marea (descartada, V1) →
+      ENSO (descartada, r²≤1.2%) → **ruido inter-sensor (confirmado,
+      razón de varianza 3×, p=0.0001)**, con una componente de coherencia
+      espacial de corto alcance sin resolver del todo (candidato 1).
+      **Accionable**: el hallazgo E1 (WLR con pesos reales por satélite en
+      vez del proxy por fecha de corte) queda validado como el próximo
+      paso natural — ahora hay datos concretos (`/mnt/kingston` con
+      satname) para calibrar pesos 1/std reales por sensor en vez de
+      pesos uniformes o el proxy de corte L5→L8 usado hasta ahora.

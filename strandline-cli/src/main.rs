@@ -10,6 +10,7 @@ use anyhow::Context;
 use clap::{Parser, Subcommand};
 use strandline_core::qc::{self, QcCriteria};
 use strandline_core::rates::{compute_rates, decimal_year_from_mjd, despike};
+use strandline_core::stl::decompose as stl_decompose;
 use strandline_core::tide::{self, harmonic::TidePredictor, TideCorrection};
 use strandline_core::transects::{
     compute_intersections, generate_transects, smooth_polyline, transect_name,
@@ -363,6 +364,33 @@ enum Command {
         #[arg(long, default_value_t = 0.01)]
         min_r2: f64,
         /// CSV de salida con las tasas por transecto.
+        #[arg(short, long)]
+        output: PathBuf,
+    },
+    /// Descompone la serie de chainage de cada transecto en tendencia +
+    /// estacional + residuo (STL, Cleveland et al. 1990) — validado como
+    /// práctica activa a escala por los creadores de CoastSat/CoastSeg
+    /// (Warrick, Vos & Buscombe 2025, JGR). Resamplea a grilla mensual
+    /// (interpolación lineal en huecos) antes de ajustar, con periodo 12.
+    Stl {
+        /// CSV de intersecciones (transect, shoreline_id, chainage_m) —
+        /// típicamente la salida de `intersect`.
+        #[arg(long)]
+        intersections: PathBuf,
+        /// CSV con fecha por shoreline (columnas: shoreline_id, date).
+        #[arg(long)]
+        dates: PathBuf,
+        /// Mínimo de meses distintos con observación real (no interpolada)
+        /// para intentar la descomposición.
+        #[arg(long, default_value_t = 12)]
+        min_months: usize,
+        /// Lapso mínimo cubierto (años) — con periodo 12 hacen falta al
+        /// menos ~2 ciclos anuales completos para separar estacional de
+        /// tendencia sin degenerar.
+        #[arg(long, default_value_t = 2.0)]
+        min_span_years: f64,
+        /// CSV de salida en formato largo (transect, month, trend_m,
+        /// seasonal_m, residual_m, interpolated).
         #[arg(short, long)]
         output: PathBuf,
     },
@@ -1176,6 +1204,71 @@ fn main() -> anyhow::Result<()> {
             } else {
                 eprintln!("{} transectos con tasas -> {}", n_out, output.display());
             }
+        }
+        Command::Stl {
+            intersections,
+            dates,
+            min_months,
+            min_span_years,
+            output,
+        } => {
+            let date_w = read_date_weights(&dates)?;
+            let text = std::fs::read_to_string(&intersections)
+                .with_context(|| format!("leyendo intersecciones {}", intersections.display()))?;
+            let mut lines = text.lines().filter(|l| !l.trim().is_empty());
+            lines.next(); // header: transect,shoreline_id,chainage_m
+            let mut by_transect: std::collections::BTreeMap<String, Vec<(f64, f64)>> =
+                std::collections::BTreeMap::new();
+            for l in lines {
+                let f: Vec<&str> = l.split(',').map(str::trim).collect();
+                if f.len() < 3 {
+                    continue;
+                }
+                let (Some(&(t_year, _weight)), Ok(chainage)) =
+                    (date_w.get(f[1]), f[2].parse::<f64>())
+                else {
+                    continue;
+                };
+                by_transect.entry(f[0].to_string()).or_default().push((t_year, chainage));
+            }
+
+            let mut out =
+                String::from("transect,month,trend_m,seasonal_m,residual_m,interpolated\n");
+            let mut n_ok = 0usize;
+            let mut amplitudes = Vec::new();
+            for (tname, mut obs) in by_transect {
+                obs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+                let t: Vec<f64> = obs.iter().map(|o| o.0).collect();
+                let y: Vec<f64> = obs.iter().map(|o| o.1).collect();
+                let Some(r) = stl_decompose(&t, &y, min_months, min_span_years) else {
+                    continue;
+                };
+                n_ok += 1;
+                amplitudes.push(r.seasonal_amplitude_m);
+                for i in 0..r.months.len() {
+                    out.push_str(&format!(
+                        "{},{:.4},{:.4},{:.4},{:.4},{}\n",
+                        tname,
+                        r.months[i],
+                        r.trend[i],
+                        r.seasonal[i],
+                        r.residual[i],
+                        r.interpolated[i]
+                    ));
+                }
+            }
+            std::fs::write(&output, out)
+                .with_context(|| format!("escribiendo {}", output.display()))?;
+            let median_amplitude = if amplitudes.is_empty() {
+                0.0
+            } else {
+                amplitudes.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                amplitudes[amplitudes.len() / 2]
+            };
+            eprintln!(
+                "{n_ok} transectos descompuestos, amplitud estacional mediana = {median_amplitude:.2} m -> {}",
+                output.display()
+            );
         }
     }
     Ok(())

@@ -22,6 +22,9 @@ rayon = "1"
 # tipos de `Raster::data()` (ndarray::Array2) sean compatibles: surtgis-core
 # dejó de re-exportar `ndarray`, así que se declara como dep directa.
 ndarray = "0.16"
+# STL (Cleveland et al. 1990) para descomposición estacional de series de
+# shoreline — ver strandline-core::stl. MIT/Unlicense.
+stlrs = "0.4"
 
 [profile.release]
 lto = true
