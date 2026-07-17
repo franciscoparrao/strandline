@@ -895,3 +895,50 @@ benchmark (software + accuracy vs CoastSat + velocidad).
       paso natural — ahora hay datos concretos (`/mnt/kingston` con
       satname) para calibrar pesos 1/std reales por sensor en vez de
       pesos uniformes o el proxy de corte L5→L8 usado hasta ahora.
+
+- **2026-07-17 (4)**: **E1 cerrado — pesos WLR reales por satélite,
+  implementados y validados contra el WLR real del paper**. Nuevo módulo
+  `strandline-core::satellite_weights` + subcomando CLI `strandline
+  satellite-weights` + flag `rates --satellite-weights`.
+  - **Diseño**: *detrend* OLS por transecto, residuos agrupados por
+    satélite pooled entre TODOS los transectos (más potencia estadística
+    que calibrar transecto por transecto), peso = `1/varianza`. WLR es
+    invariante a la escala de los pesos (`weighted_regression` en
+    `rates.rs`: la pendiente y su IC95 solo dependen de proporciones
+    relativas, se verificó algebraicamente) — no hace falta normalizar.
+    CLI: `satellite-weights` toma `intersections` + `dates` (con columna
+    `satname` nueva) y escribe `satname,n_obs,std_m,weight`; `rates
+    --satellite-weights <csv>` reemplaza la columna `weight` de `dates`
+    por el peso de la tabla cuando el satélite de la observación está en
+    ella (fallback al peso de `dates`/1.0 si no — no rompe el flujo
+    existente).
+  - **Validado**: 4 tests nuevos (satélite más ruidoso recibe menor peso,
+    ratio de varianza recuperado dentro de tolerancia amplia sobre datos
+    sintéticos con tendencias distintas por transecto; transecto bajo el
+    mínimo se ignora; tendencia fuerte no contamina el residuo; caso
+    vacío). 81 tests totales (77+4), `extract_integration` y
+    `pixel_locking` OK, clippy limpio.
+  - **Validación real, la que importa**: se calibraron pesos sobre los
+    770 días reales de Viña (satname real de `/mnt/kingston`) y se
+    comparó el WLR resultante contra `rates_corrected` del pickle del
+    paper (que sí usó satname real en su propio pipeline). **Mediana del
+    error |WLR_calculado − WLR_paper| bajó de 0.0552 a 0.0231 m/año
+    (más de 2× mejor) usando pesos reales en vez de uniformes, y el WLR
+    con pesos reales quedó más cerca del paper en 137/178 transectos
+    (77%)** — cierra el hallazgo E1 con evidencia directa, no solo
+    plausibilidad.
+  - **Nota honesta sobre la magnitud del efecto**: el ratio L8-vs-resto
+    calibrado por `satellite-weights` (detrend OLS simple, por
+    observación cruda, sin deseasonalizar) da std≈115m (L8) vs
+    std≈127-137m (L5/L7/L9) — razón de varianza ~1.4×, notablemente más
+    chico que el ~3× encontrado en la adenda (3) vía residuo STL
+    (agregado mensual, promediado ACROSS transectos, con estacional ya
+    removido). No es una discrepancia — son residuos distintos: el
+    detrend simple por transecto retiene todo el ruido de intersecciones
+    múltiples/georreferenciación local (dominante en magnitud, ya
+    documentado como causa del SCE~500m), mientras que promediar
+    across-transectos por mes cancela ese ruido idiosincrático y expone
+    mejor el componente COMPARTIDO (inter-sensor). Ambos son válidos; el
+    ratio más chico aquí es esperable dado qué residuo se usa, y aun así
+    el efecto en el WLR final es real y medible (2× mejor vs el paper).
+    Dirección consistente en ambos métodos: L8 siempre el más preciso.

@@ -344,6 +344,15 @@ enum Command {
         /// antes del despiking y las tasas (Vos et al. 2019).
         #[arg(long)]
         tide_correction: Option<PathBuf>,
+        /// CSV opcional de pesos WLR por satélite (columnas: satname,
+        /// weight) — típicamente la salida de `satellite-weights`. Si se
+        /// da, `dates` debe tener una columna `satname` además de `date`;
+        /// el peso real por satélite reemplaza a la columna `weight` de
+        /// `dates` para las observaciones cuyo satélite esté en la tabla
+        /// (cierra el hallazgo E1: proxy por fecha de corte -> pesos
+        /// medidos).
+        #[arg(long)]
+        satellite_weights: Option<PathBuf>,
         /// Aplica los 5 filtros QC calibrados y agrega columnas
         /// `excluded,reason` a la salida.
         #[arg(long)]
@@ -394,6 +403,32 @@ enum Command {
         #[arg(short, long)]
         output: PathBuf,
     },
+    /// Calibra pesos WLR reales por satélite desde datos observados
+    /// (cierra el hallazgo E1): hace *detrend* OLS de cada transecto,
+    /// agrupa los residuos por satélite pooled entre todos los
+    /// transectos, y el peso es `1/varianza` — WLR es invariante a la
+    /// escala de los pesos, así que no hace falta normalizar. Reemplaza
+    /// el proxy histórico de pesos por fecha de corte (válido solo en
+    /// sitios Landsat-only con un único salto de sensor) por una medición
+    /// real de precisión por sensor.
+    SatelliteWeights {
+        /// CSV de intersecciones (transect, shoreline_id, chainage_m) —
+        /// típicamente la salida de `intersect`.
+        #[arg(long)]
+        intersections: PathBuf,
+        /// CSV con fecha y satélite por shoreline (columnas: shoreline_id,
+        /// date, satname).
+        #[arg(long)]
+        dates: PathBuf,
+        /// Mínimo de observaciones para intentar el detrend de un
+        /// transecto; los que tienen menos se ignoran.
+        #[arg(long, default_value_t = 10)]
+        min_valid: usize,
+        /// CSV de salida (satname, n_obs, std_m, weight) — usar
+        /// directamente como `rates --satellite-weights`.
+        #[arg(short, long)]
+        output: PathBuf,
+    },
 }
 
 /// Parsea el tipo de máscara desde el flag CLI.
@@ -428,6 +463,68 @@ fn read_tide_correction(
         }
         if let Ok(v) = f[ci].parse::<f64>() {
             map.insert(f[idi].to_string(), v);
+        }
+    }
+    Ok(map)
+}
+
+/// Lee `shoreline_id, date, satname` — año decimal + satélite por id.
+/// Usado por `satellite-weights` (calibración) y por `rates
+/// --satellite-weights` (lookup del satélite de cada observación).
+fn read_date_satnames(
+    path: &PathBuf,
+) -> anyhow::Result<std::collections::HashMap<String, (f64, String)>> {
+    let text = std::fs::read_to_string(path)
+        .with_context(|| format!("leyendo fechas/satélite {}", path.display()))?;
+    let mut lines = text.lines().filter(|l| !l.trim().is_empty());
+    let header: Vec<String> = lines
+        .next()
+        .unwrap_or_default()
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .collect();
+    let idi = header.iter().position(|c| c == "shoreline_id").context("falta 'shoreline_id'")?;
+    let di = header.iter().position(|c| c == "date").context("falta 'date'")?;
+    let si = header.iter().position(|c| c == "satname").context("falta 'satname'")?;
+
+    let mut map = std::collections::HashMap::new();
+    for l in lines {
+        let f: Vec<&str> = l.split(',').map(str::trim).collect();
+        if f.len() <= idi.max(di).max(si) {
+            continue;
+        }
+        let Some(mjd) = tide::parse_timestamp(f[di]) else {
+            continue;
+        };
+        map.insert(f[idi].to_string(), (decimal_year_from_mjd(mjd), f[si].to_string()));
+    }
+    Ok(map)
+}
+
+/// Lee `satname, weight` (columnas adicionales ignoradas) a un mapa —
+/// típicamente la salida de `satellite-weights`.
+fn read_satellite_weight_table(
+    path: &PathBuf,
+) -> anyhow::Result<std::collections::HashMap<String, f64>> {
+    let text = std::fs::read_to_string(path)
+        .with_context(|| format!("leyendo tabla de pesos por satélite {}", path.display()))?;
+    let mut lines = text.lines().filter(|l| !l.trim().is_empty());
+    let header: Vec<String> = lines
+        .next()
+        .unwrap_or_default()
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .collect();
+    let si = header.iter().position(|c| c == "satname").context("falta 'satname'")?;
+    let wi = header.iter().position(|c| c == "weight").context("falta 'weight'")?;
+    let mut map = std::collections::HashMap::new();
+    for l in lines {
+        let f: Vec<&str> = l.split(',').map(str::trim).collect();
+        if f.len() <= si.max(wi) {
+            continue;
+        }
+        if let Ok(w) = f[wi].parse::<f64>() {
+            map.insert(f[si].to_string(), w);
         }
     }
     Ok(map)
@@ -1101,6 +1198,7 @@ fn main() -> anyhow::Result<()> {
             despike_max_change,
             despike_min_valid,
             tide_correction,
+            satellite_weights,
             qc,
             max_abs_lrr,
             max_sce,
@@ -1121,6 +1219,14 @@ fn main() -> anyhow::Result<()> {
                 Some(p) => read_tide_correction(p)?,
                 None => std::collections::HashMap::new(),
             };
+            // pesos reales por satélite (hallazgo E1): reemplazan la
+            // columna `weight` de `dates` cuando el satélite de la
+            // observación está en la tabla; si no, cae al peso de `dates`
+            // (o 1.0 por default) sin romper el flujo existente.
+            let (sat_by_shoreline, sat_weight_table) = match &satellite_weights {
+                Some(p) => (read_date_satnames(&dates)?, read_satellite_weight_table(p)?),
+                None => (std::collections::HashMap::new(), std::collections::HashMap::new()),
+            };
             // agrupar chainages por transecto, preservando (t_year, chainage, weight)
             let text = std::fs::read_to_string(&intersections)
                 .with_context(|| format!("leyendo intersecciones {}", intersections.display()))?;
@@ -1138,6 +1244,11 @@ fn main() -> anyhow::Result<()> {
                 else {
                     continue;
                 };
+                let weight = sat_by_shoreline
+                    .get(f[1])
+                    .and_then(|(_, sat)| sat_weight_table.get(sat))
+                    .copied()
+                    .unwrap_or(weight);
                 // corrección mareal: corrected = raw − correction (Vos et al.)
                 let corrected = chainage - tide_corr.get(f[1]).copied().unwrap_or(0.0);
                 by_transect
@@ -1269,6 +1380,51 @@ fn main() -> anyhow::Result<()> {
                 "{n_ok} transectos descompuestos, amplitud estacional mediana = {median_amplitude:.2} m -> {}",
                 output.display()
             );
+        }
+        Command::SatelliteWeights {
+            intersections,
+            dates,
+            min_valid,
+            output,
+        } => {
+            let date_sat = read_date_satnames(&dates)?;
+            let text = std::fs::read_to_string(&intersections)
+                .with_context(|| format!("leyendo intersecciones {}", intersections.display()))?;
+            let mut lines = text.lines().filter(|l| !l.trim().is_empty());
+            lines.next(); // header: transect,shoreline_id,chainage_m
+            let mut by_transect: std::collections::HashMap<String, Vec<(f64, f64, String)>> =
+                std::collections::HashMap::new();
+            for l in lines {
+                let f: Vec<&str> = l.split(',').map(str::trim).collect();
+                if f.len() < 3 {
+                    continue;
+                }
+                let (Some((t_year, sat)), Ok(chainage)) =
+                    (date_sat.get(f[1]), f[2].parse::<f64>())
+                else {
+                    continue;
+                };
+                by_transect
+                    .entry(f[0].to_string())
+                    .or_default()
+                    .push((*t_year, chainage, sat.clone()));
+            }
+
+            let weights = strandline_core::calibrate_satellite_weights(&by_transect, min_valid);
+            anyhow::ensure!(
+                !weights.is_empty(),
+                "ningún satélite tuvo suficientes observaciones para calibrar (revisa --min-valid o los datos de entrada)"
+            );
+            let mut out = String::from("satname,n_obs,std_m,weight\n");
+            for w in &weights {
+                out.push_str(&format!("{},{},{:.4},{:.6}\n", w.satname, w.n_obs, w.std_m, w.weight));
+            }
+            std::fs::write(&output, out)
+                .with_context(|| format!("escribiendo {}", output.display()))?;
+            eprintln!("pesos calibrados para {} satélites -> {}", weights.len(), output.display());
+            for w in &weights {
+                eprintln!("  {}: n={} std={:.2}m peso={:.4}", w.satname, w.n_obs, w.std_m, w.weight);
+            }
         }
     }
     Ok(())
