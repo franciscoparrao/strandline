@@ -626,3 +626,112 @@ benchmark (software + accuracy vs CoastSat + velocidad).
     `extract`/`baseline` para SR (hoy solo `profile` lo usa); evaluar si
     conviene igual para TOA (no debería empeorar, activa el mismo
     fallback-nunca-peor-que-semilla).
+
+- **2026-07-17**: **`extract --subpixel-refine` y `baseline --subpixel-refine`
+  agregados** (mismo mecanismo de la adenda 9, aplicado al contorno mismo
+  en vez de a transectos externos: `subpixel::refine_line_subpixel` reusa
+  `generate_transects` tratando la línea como su propia base, genera
+  mini-transectos perpendiculares sembrados en cada punto pixel-locked, y
+  ajusta con el mismo `fit_profile`+fallback ya validado). Off por default
+  en ambos comandos — no toca la paridad exacta con CoastSat que varias
+  validaciones del proyecto dependen (confirmado: `extract_integration`
+  sigue pasando igual). 68 tests (66+2 nuevos), clippy limpio, smoke test
+  manual sobre el fixture (1.59 m de desplazamiento mediano vs el contorno
+  crudo, mismo N de líneas y umbral).
+  - **Cierre del loop con el hallazgo E4** (adenda 4, 9.35 m documentado
+    para el pipeline SR-sin-clasificador): se re-fetchearon las 6 escenas
+    SR de Viña que coinciden en fecha exacta con `coastsat_reference.geojson`
+    (ground truth real TOA) y se comparó `extract` con y sin
+    `--subpixel-refine` con la misma metodología del spike original
+    (distancia punto-a-línea simétrica, corredor 150 m). Reprodujo el
+    9.35 m exacto para 2020-01-10 sin la flag, confirmando la metodología.
+    **Con la flag: 9.35→9.18 m en esa escena; global (5 de 6 fechas, una
+    excluida por 0 líneas — escena con umbral degenerado, no relacionado
+    al cambio) mediana 11.41→11.28 m, media 18.90→17.39 m (~8% mejor),
+    p90 38.34→32.70 m (~15% mejor)**. Mejora real pero modesta,
+    concentrada en reducir los peores casos (p90/media) más que la
+    mediana — consistente con que el techo lo pone el desajuste de
+    resolución inter-producto (SR 30 m vs referencia TOA 15 m
+    pansharpeada, ya documentado en la adenda 4): el refinamiento quita
+    el sesgo de pixel-locking dentro de la resolución nativa SR, no
+    puede recuperar información perdida por el píxel más grueso. Una
+    escena (2020-01-26) empeoró levemente (12.54→12.79 m) — no
+    sistemático. Script: `spike/profile_sr/recheck_e4_subpixel.py`.
+
+  - **Extensión a los 4 sitios restantes del benchmark** (Coquimbo,
+    Valdivia, Chiloé, Constitución) — **hallazgo: el patrón se invierte**
+    respecto a Viña/Arica. Se comparó `otsu_intersect` (baseline) vs
+    `extract --subpixel-refine` + intersect vs `profile` sembrado, contra
+    `cross_distance_clean` real de los 4 pickles (`{SITE}_analysis.pkl`,
+    33 fechas SR fetched con match exacto entre los 4 sitios):
+    ```
+                                  mediana   media    p90    n
+    otsu_intersect (baseline)     13.98 m  49.79 m  80.74   1753
+    extract --subpixel-refine     11.87 m  42.01 m  59.54   2489  <- gana
+    profile sembrado              14.75 m  46.86 m  71.66   2009  <- pierde
+    ```
+    `extract --subpixel-refine` gana en los 4 sitios y globalmente
+    (~15% mejor que el baseline, más cobertura). `profile` sembrado
+    **pierde contra el baseline** en los 4 (Viña/Arica fue la excepción,
+    no la regla). Explicación: los mini-transectos de
+    `refine_line_subpixel` se generan FRESCOS por escena, perpendiculares
+    al contorno real de ESA fecha — siempre bien alineados. Los
+    transectos de `profile` son fijos, generados UNA vez desde el
+    `reference_shoreline` histórico del sitio; en costas complejas/
+    dinámicas (terrazas de Coquimbo, estuario de Valdivia, bahías
+    macro-mareales de Chiloé, desembocadura de Constitución) esos
+    transectos largos (500 m) ya no aproximan bien la normal local de la
+    costa en una fecha dada, así que la ventana de ajuste de 60 m puede
+    no bracket-ear el borde real o bracket-earlo de forma sesgada. En
+    Viña (costa relativamente recta y estable) esa desalineación es
+    chica y `profile` gana; en las otras 4, domina. **Recomendación
+    revisada**: `extract --subpixel-refine` es la mejora robusta de
+    default candidata para SR; `profile` sembrado sigue siendo mejor
+    SOLO cuando los transectos existentes son geométricamente fieles a
+    la costa actual (típicamente sitios simples o con baseline
+    reciente). Script: `spike/profile_sr/run_experiment_multisite.py`.
+
+  - **Bug real encontrado y corregido durante la validación**: al
+    diagnosticar por qué Chiloé tenía mayoría de fechas "sin resultados
+    utilizables" (11 de 15), se descartó nubosidad/nodata (escenas 99.7-
+    99.8% de píxeles válidos) — la causa era `nd_index`
+    (`strandline-core::index`, usado por MNDWI y las 5 features
+    espectrales del clasificador) explotando numéricamente: Landsat
+    Collection 2 SR permite reflectancia negativa (sombras/agua oscura
+    tras la corrección atmosférica), y cuando `Green+SWIR1` cruza cerca de
+    cero un puñado de píxeles (~0.02-0.03%) da valores de **cientos a
+    miles** en vez de un índice normalizado válido, corrompiendo el
+    histograma de `otsu_threshold` completo → umbral degenerado, 0 líneas
+    extraídas silenciosamente. **25 de 60 escenas (42%) de los 4 sitios**
+    tenían este problema.
+    - **Fix**: `nd_index` rechaza (`NaN`) valores con `|resultado| >
+      MAX_ABS_VALUE` (5.0), no exactamente `[-1,1]` — se intentó primero
+      con `[-1,1]` (con y sin tolerancia de punto flotante) y ambas
+      versiones rompían el golden `extract_coastsat_compat_matches_golden`
+      (`water_px` 4610→4609): el fixture de integración TIENE un píxel
+      real con SWIR1=-0.0028 que da -1.05/-1.22 en dos índices —
+      moderadamente fuera de `[-1,1]` pero NO una explosión numérica, y
+      CoastSat original (que no filtra esto en absoluto) también lo
+      tolera. `5.0` separa con margen amplio el caso real-pero-moderado
+      (toleral, fiel al port) del caso de explosión numérica genuina (se
+      rechaza).
+    - **Validado**: 72 tests (2 nuevos: `excursion_moderada_fuera_de_1_
+      pasa_sin_filtrar` con el pixel exacto del fixture,
+      `explosion_numerica_real_da_nan` con el patrón del bug real),
+      `extract_integration` (los 2 goldens de paridad CoastSat) y
+      `pixel_locking` OK, clippy limpio. **0 de 60 escenas degeneradas
+      tras el fix** (antes 25/60). Re-corriendo el experimento multisitio
+      con el fix, la cobertura subió de 33 a 56 fechas usadas (13-15 por
+      sitio en vez de 4-10) y el resultado se **confirma y se fortalece**
+      con la muestra más grande:
+      ```
+                                    mediana   media    p90     n
+      otsu_intersect (baseline)     14.29 m  57.32 m  120.39   3112
+      extract --subpixel-refine     11.78 m  48.46 m   81.04   4325  <- gana (~18% mejor mediana)
+      profile sembrado              15.15 m  53.92 m   90.52   3523  <- sigue perdiendo
+      ```
+    - **No commiteado todavía** (index.rs). Este bug fix es independiente
+      del trabajo de refinamiento subpixel de las adendas 9-10 y sería
+      igual de válido si nunca se hubiera tocado `profile`/`extract`
+      --subpixel-refine — se encontró como efecto colateral de la
+      validación, no del refinamiento en sí.
