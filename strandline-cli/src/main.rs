@@ -660,13 +660,33 @@ fn main() -> anyhow::Result<()> {
             let ts = read_transects_csv(&transects)?;
             anyhow::ensure!(!ts.is_empty(), "no hay transectos");
 
+            // Semilla por transecto: el cruce del contorno Otsu/clasificador
+            // (mismo `params`, así que mismo nivel que el ajuste subpixel)
+            // con cada transecto. El contorno ve la escena completa en 2D,
+            // así que no engancha features espurias entre el origen y la
+            // costa real (estacionamientos, sombras, agua interrumpida) como
+            // sí puede hacerlo el buscador ingenuo 1D — ver hallazgo de la
+            // adenda profile_sr (Viña: perfil sin semilla erraba 150 m de
+            // mediana por esto). Cuando el contorno no cruza un transecto
+            // (QC excluido, fuera del footprint de la escena), ese
+            // transecto cae al buscador ingenuo dentro de `fit_profiles`.
+            let contour_shoreline = extract_shoreline(&ms, mask.as_deref(), &params)
+                .with_context(|| format!("contorneando para semillas {}", ms.display()))?;
+            let combined_line: Vec<(f64, f64)> =
+                contour_shoreline.lines.into_iter().flatten().collect();
+            let seed_raw = compute_intersections(&[combined_line], &ts, &IntersectionSettings::default());
+            let seeds: Vec<Option<f64>> = seed_raw
+                .iter()
+                .map(|v| v.first().copied().filter(|x| x.is_finite()))
+                .collect();
+
             let settings = ProfileSettings {
                 step_m: step,
                 window_m: window,
                 ..Default::default()
             };
             let t0 = std::time::Instant::now();
-            let fits = fit_profiles(&scene.mndwi, &ts, scene.level_textbook as f64, &settings);
+            let fits = fit_profiles(&scene.mndwi, &ts, scene.level_textbook as f64, &seeds, &settings);
             let elapsed = t0.elapsed().as_secs_f64();
 
             let mut out = String::from(

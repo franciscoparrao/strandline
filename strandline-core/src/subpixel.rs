@@ -316,18 +316,79 @@ fn invert4_diag_entry(m: [[f64; 4]; 4], k: usize) -> Option<f64> {
 
 /// Ajusta el perfil de un transecto y devuelve el cruce subpixel del
 /// `level`, o `None` si no hay cruce o el ajuste no es utilizable.
+///
+/// `seed`: posición inicial (chainage, m desde `transect.origin`) para
+/// centrar la ventana de ajuste. Si es `Some`, se usa directamente —
+/// típicamente el cruce del contorno Otsu/clasificador con el mismo
+/// transecto (ve todo el 2D de la escena, así que no se deja engañar por
+/// features espurias entre el origen y la costa real: estacionamientos,
+/// sombras, agua interrumpida). Si es `None`, cae al buscador ingenuo
+/// [`initial_crossing`] (el último cruce ascendente del perfil 1D
+/// suavizado) — puede enganchar el cruce equivocado en frentes urbanos
+/// anchos donde hay más de una transición tierra/agua antes de la costa.
 pub fn fit_profile(
     raster: &Raster<f32>,
     transect: &Transect,
     level: f64,
+    seed: Option<f64>,
     settings: &ProfileSettings,
 ) -> Option<ProfileFit> {
     let (dist, vals) = sample_profile(raster, transect, settings.step_m);
-    let x0_init = initial_crossing(&dist, &vals, level)?;
+    match seed {
+        None => {
+            let x0_init = initial_crossing(&dist, &vals, level)?;
+            try_fit_window(raster, transect, level, &dist, &vals, x0_init, settings)
+        }
+        Some(x0_seed) => {
+            // con semilla (típicamente el cruce del contorno Otsu, que ve
+            // la escena en 2D) el resultado nunca es peor que la semilla:
+            // si el perfil 1D local no bracket-ea el nivel alrededor de
+            // ella (frente urbano ambiguo, plateau que no vuelve a cruzar
+            // el umbral — ver `naive_search_engancha_la_meseta_espuria`),
+            // se reporta la semilla misma en vez de `None`. El ajuste
+            // subpixel solo se usa cuando localmente es válido.
+            try_fit_window(raster, transect, level, &dist, &vals, x0_seed, settings)
+                .or_else(|| Some(coarse_fit_at(transect, x0_seed)))
+        }
+    }
+}
 
+/// Punto reportado directamente en `chainage_m` (sin refinamiento
+/// subpixel), usado como respaldo cuando hay semilla pero el ajuste local
+/// no converge o no bracketea el nivel. `sigma_m`/`dx_dthreshold`/`rmse`
+/// quedan en `NaN` — no hay información de incertidumbre del ajuste, a
+/// diferencia de un `ProfileFit` refinado.
+fn coarse_fit_at(transect: &Transect, chainage_m: f64) -> ProfileFit {
+    let (ox, oy) = transect.origin;
+    let (dx, dy) = (transect.end.0 - ox, transect.end.1 - oy);
+    let len = (dx * dx + dy * dy).sqrt();
+    let (ux, uy) = (dx / len, dy / len);
+    ProfileFit {
+        chainage_m,
+        world: (ox + chainage_m * ux, oy + chainage_m * uy),
+        sigma_m: f64::NAN,
+        dx_dthreshold: f64::NAN,
+        rmse: f64::NAN,
+        n_samples: 0,
+    }
+}
+
+/// Intenta el ajuste sigmoide en la ventana centrada en `x0_init`. `None`
+/// si no hay suficientes muestras, el ajuste no converge, no bracketea
+/// `level`, o el cruce cae fuera de lo muestreado.
+#[allow(clippy::too_many_arguments)]
+fn try_fit_window(
+    raster: &Raster<f32>,
+    transect: &Transect,
+    level: f64,
+    dist: &[f64],
+    vals: &[f64],
+    x0_init: f64,
+    settings: &ProfileSettings,
+) -> Option<ProfileFit> {
     // ventana alrededor del cruce
     let (mut xs, mut ys) = (Vec::new(), Vec::new());
-    for (&d, &v) in dist.iter().zip(&vals) {
+    for (&d, &v) in dist.iter().zip(vals) {
         if v.is_finite() && (d - x0_init).abs() <= settings.window_m {
             xs.push(d);
             ys.push(v);
@@ -398,21 +459,27 @@ pub fn fit_profile(
 }
 
 /// Ajusta todos los transectos (en paralelo con la feature `parallel`).
+///
+/// `seeds`: una entrada por transecto (mismo orden/largo que `transects`);
+/// `None` en una posición cae al buscador ingenuo para ese transecto. Ver
+/// [`fit_profile`].
 pub fn fit_profiles(
     raster: &Raster<f32>,
     transects: &[Transect],
     level: f64,
+    seeds: &[Option<f64>],
     settings: &ProfileSettings,
 ) -> Vec<Option<ProfileFit>> {
-    let run = |t: &Transect| fit_profile(raster, t, level, settings);
+    debug_assert_eq!(transects.len(), seeds.len());
+    let run = |(t, &seed): (&Transect, &Option<f64>)| fit_profile(raster, t, level, seed, settings);
     #[cfg(feature = "parallel")]
     {
         use rayon::prelude::*;
-        transects.par_iter().map(run).collect()
+        transects.par_iter().zip(seeds).map(run).collect()
     }
     #[cfg(not(feature = "parallel"))]
     {
-        transects.iter().map(run).collect()
+        transects.iter().zip(seeds).map(run).collect()
     }
 }
 
@@ -468,6 +535,7 @@ mod tests {
                 &raster,
                 &transect_at_row(20),
                 0.1, // nivel = punto medio del tanh → cruce en x_true
+                None,
                 &ProfileSettings::default(),
             )
             .expect("ajuste falló");
@@ -486,6 +554,7 @@ mod tests {
             &synthetic_edge(x_true, 15.0, 0.005, 7),
             &transect_at_row(20),
             0.1,
+            None,
             &ProfileSettings::default(),
         )
         .unwrap();
@@ -493,6 +562,7 @@ mod tests {
             &synthetic_edge(x_true, 15.0, 0.08, 7),
             &transect_at_row(20),
             0.1,
+            None,
             &ProfileSettings::default(),
         )
         .unwrap();
@@ -508,7 +578,7 @@ mod tests {
     fn no_crossing_returns_none() {
         // nivel fuera del rango del perfil → sin cruce
         let raster = synthetic_edge(300.0, 15.0, 0.0, 1);
-        let fit = fit_profile(&raster, &transect_at_row(20), 5.0, &ProfileSettings::default());
+        let fit = fit_profile(&raster, &transect_at_row(20), 5.0, None, &ProfileSettings::default());
         assert!(fit.is_none());
     }
 
@@ -521,12 +591,113 @@ mod tests {
         // posición x₀ no se sesga: el kernel es simétrico) → se acepta
         // [28, 38].
         let raster = synthetic_edge(300.0, 15.0, 0.0, 3);
-        let fit = fit_profile(&raster, &transect_at_row(20), 0.1, &ProfileSettings::default())
+        let fit = fit_profile(&raster, &transect_at_row(20), 0.1, None, &ProfileSettings::default())
             .unwrap();
         assert!(
             fit.dx_dthreshold > 28.0 && fit.dx_dthreshold < 38.0,
             "dx/dt = {}",
             fit.dx_dthreshold
+        );
+    }
+
+    /// Perfil con una meseta espuria "tierra→casi-agua" cerca del origen
+    /// (ej. estacionamiento/sombra/arena húmeda) que nunca vuelve a bajar
+    /// del umbral antes del borde real más lejos — reproduce el caso real
+    /// de Viña (adenda profile_sr): el buscador ingenuo [`initial_crossing`]
+    /// solo ve UNA transición ascendente (la espuria, ~90 m) porque tras
+    /// ella el perfil queda por encima del nivel sin volver a cruzar hacia
+    /// arriba en el borde verdadero (~350 m) — de hecho ahí ni siquiera hay
+    /// un cruce LOCAL de `level` (todo el entorno de 350 m ya está por
+    /// encima de 0.3), así que ni el ajuste sembrado puede bracket-earlo:
+    /// el caso ejercita el *fallback* a la semilla misma, no el
+    /// refinamiento subpixel (ver `seed_recupera_borde_con_ajuste_valido`
+    /// para ese caso).
+    fn synthetic_false_plateau_then_edge(x_true: f64) -> Raster<f32> {
+        let (rows, cols) = (40, 40);
+        let cell = 15.0;
+        let mut data = Vec::with_capacity(rows * cols);
+        for _r in 0..rows {
+            for c in 0..cols {
+                let x = c as f64 * cell;
+                let v = if x < 90.0 {
+                    0.1
+                } else {
+                    // meseta espuria (asíntota izquierda 0.40) que sube
+                    // suavemente a "agua" (asíntota derecha 0.70) en
+                    // x_true — ambas asíntotas quedan por encima de 0.3,
+                    // nunca pasa por debajo desde x=90 (a diferencia de
+                    // usar amplitud 0.3 directa, que satura a [0.1,0.7] y
+                    // sí vuelve a cruzar el nivel).
+                    0.55 + 0.15 * ((x - x_true) / 15.0).tanh()
+                };
+                data.push(v as f32);
+            }
+        }
+        let mut r = Raster::<f32>::from_vec(data, rows, cols).unwrap();
+        r.set_transform(GeoTransform::from_gdal([0.0, cell, 0.0, 0.0, 0.0, -cell]));
+        r.set_nodata(None);
+        r
+    }
+
+    #[test]
+    fn naive_search_engancha_la_meseta_espuria() {
+        let raster = synthetic_false_plateau_then_edge(350.0);
+        let fit = fit_profile(&raster, &transect_at_row(20), 0.3, None, &ProfileSettings::default());
+        // o no converge (0.3 nunca vuelve a cruzarse tras la meseta), o
+        // converge cerca de la meseta espuria (~90 m) — en ningún caso
+        // cerca del borde verdadero (350 m).
+        if let Some(f) = fit {
+            assert!(
+                (f.chainage_m - 350.0).abs() > 50.0,
+                "el buscador ingenuo no debería acertar el borde verdadero: {}",
+                f.chainage_m
+            );
+        }
+    }
+
+    #[test]
+    fn seed_cae_a_la_semilla_cuando_no_hay_cruce_local() {
+        // 0.3 no bracket-ea el rango [0.4, 0.7] visible alrededor de 350 m
+        // → el ajuste local no es válido y se reporta la semilla misma
+        // (fallback), no `None`: el resultado sembrado nunca es peor que
+        // el cruce Otsu que lo originó.
+        let raster = synthetic_false_plateau_then_edge(350.0);
+        let fit = fit_profile(
+            &raster,
+            &transect_at_row(20),
+            0.3,
+            Some(350.0), // cruce del contorno Otsu (2D, no ve la meseta como costa)
+            &ProfileSettings::default(),
+        )
+        .expect("con semilla el resultado nunca debería ser None");
+        assert!(
+            (fit.chainage_m - 350.0).abs() < 1e-9,
+            "chainage = {} vs 350.0 esperado (fallback exacto a la semilla)",
+            fit.chainage_m
+        );
+        assert!(fit.sigma_m.is_nan(), "fallback no debería reportar σ del ajuste");
+    }
+
+    #[test]
+    fn seed_recupera_borde_con_ajuste_valido() {
+        // borde sigmoide real que sí bracketea el nivel (0.3 dentro de
+        // [0.0, 0.6]) a 350 m, con una semilla imprecisa (340 m, como
+        // daría un cruce Otsu de resolución de píxel) — el refinamiento
+        // subpixel debe acercarse más al borde real que la semilla misma.
+        let raster = synthetic_edge(350.0, 15.0, 0.0, 11);
+        let fit = fit_profile(
+            &raster,
+            &transect_at_row(20),
+            0.1, // punto medio del tanh (a=0.1, b=0.5) → cruce en 350
+            Some(340.0),
+            &ProfileSettings::default(),
+        )
+        .expect("debería converger con una semilla cercana");
+        assert!(!fit.sigma_m.is_nan(), "esperaba un ajuste refinado, no el fallback");
+        assert!(
+            (fit.chainage_m - 350.0).abs() < 1.0,
+            "chainage = {} vs 350.0 esperado",
+            fit.chainage_m
         );
     }
 }

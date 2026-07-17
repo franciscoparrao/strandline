@@ -535,3 +535,94 @@ benchmark (software + accuracy vs CoastSat + velocidad).
   estudio nacional sigue bloqueado en etiquetado nuevo, pausado por
   decisión explícita del usuario. 71 tests (69 + 2 de `fetch`), clippy
   limpio.
+
+- **2026-07-16**: **Reentrenamiento del clasificador SR intentado vía
+  pseudo-labeling automático — E4 CERRADO como limitación documentada,
+  NO resuelto**. Retoma el hallazgo E4 (el MLP TOA no transfiere a SR,
+  ~63-77% de píxeles mal clasificados como sand). Se investigó primero si
+  existía un atajo: **no hay clasificador SR oficial en CoastSat/CoastSeg**
+  (confirmado por el propio maintainer, issue #349) ni dataset público
+  reusable para las 4 clases exactas (Coast Train es lo más cercano pero
+  es RGB pansharpened, no SR, y no cubre Chile).
+  - Se construyó el pipeline completo en `spike/classifier_sr/`:
+    `label_sr_images.py` (adapta `SDS_classify.label_images` de CoastSat
+    a los pares `*_ms.tif`/`*_mask.tif` de `fetch`, labeling interactivo
+    real si se necesita a futuro), `pseudo_label_sr.py` (labels
+    automáticas por reglas de alta confianza: MNDWI para water/land,
+    NDVI para vegetación, brillo+proximidad al agua para sand, franja
+    costera brillante para whitewater — decisión explícita del usuario de
+    evitar clics manuales) y `train_sr_classifier.py` (reusa
+    `load_labels`/`format_training_data` de CoastSat sin modificar,
+    arquitectura real de producción `MLPClassifier(hidden_layer_sizes=
+    (100,))` — se descubrió que difiere de la del notebook de ejemplo de
+    CoastSat, que usa (100,50) y otra numeración de labels).
+  - **Hallazgo del experimento**: sand/other NO es separable de forma
+    confiable por reglas espectrales automáticas. Sin contraejemplos de
+    tierra brillante lejos del agua, el modelo sobre-predice sand (22% en
+    Viña); agregándolos, lo sub-predice a casi cero (0.3-1.9% en los 3
+    sitios) porque en costas áridas (Arica) el suelo desértico inland es
+    espectralmente ~idéntico a la arena de playa real — el péndulo entre
+    iteraciones fue la señal de que el límite es real, no un bug de
+    calibración de umbrales.
+  - **Validación correcta usada** (no el % de clase, que no es la métrica
+    que importa): se comparó la línea de costa extraída
+    (`extract --classify`) contra el Otsu-sin-clasificador ya validado.
+    **Viña (costa templada): 3.88 m de mediana, dentro de tolerancia** —
+    el clasificador ahí es inocuo. **Arica (costa árida): 7.48 m mediana,
+    12.81 m media, y 63% más de longitud de línea total (29.8 vs 18.3
+    km)** — el clasificador introduce contornos espurios reales, no solo
+    ruido cosmético en el porcentaje de clase.
+  - **Decisión del usuario**: no integrar el clasificador SR reentrenado.
+    El modo SR sigue usando el pipeline Otsu-refinado (ya validado
+    ~9.35 m, adenda 4) sin excepción — más simple, sin el riesgo
+    demostrado en costas áridas. `strandline-core/models/
+    coastsat_landsat_mlp.json` queda sin tocar (se restauró tras el
+    experimento). El código de `spike/classifier_sr/` se conserva sin
+    integrar, como documentación del intento y método candidato para la
+    sección de limitaciones del paper C&G ("se intentó pseudo-labeling
+    automático para SR; funciona en costas templadas/húmedas pero no es
+    confiable en costas áridas por indistinguibilidad espectral genuina
+    sand/suelo-desértico — requeriría etiquetado manual real, pausado por
+    costo/beneficio"). 71 tests sin cambios (no se tocó strandline-core
+    ni strandline-cli en esta sesión).
+
+- **2026-07-16 (2)**: **`profile` sembrado desde el contorno Otsu — arregla
+  la falla del ajuste subpixel en frentes urbanos**. Mismo experimento
+  `profile_sr` (comparar `profile` contra `extract+intersect` para SR,
+  ground truth = `cross_distance` de los pickles del paper en fechas
+  exactas coincidentes con escenas SR fetched): `profile` sin semilla daba
+  mediana 153.73 m en Viña (vs 22.78 m de `extract+intersect`, el baseline
+  actual) — el buscador ingenuo 1D (`initial_crossing`, último cruce
+  ascendente del perfil suavizado) engancha una meseta espuria
+  (estacionamiento/sombra/arena húmeda) que nunca vuelve a cruzar el
+  umbral antes de la costa real, así que no hay una segunda transición que
+  preferir. En Arica (costa simple, un solo borde agua-arena) sí mejoraba
+  (11.15 → 8.62 m) — el método no está roto en sí, es frágil en geometría
+  compleja.
+  - **Fix**: `subpixel::fit_profile`/`fit_profiles` reciben una semilla
+    opcional (`seed: Option<f64>`/`seeds: &[Option<f64>]`) que reemplaza
+    al buscador ingenuo como centro de la ventana de ajuste. El CLI
+    `profile` la calcula sembrando desde el cruce del contorno Otsu de
+    `extract_shoreline` (mismos `ExtractParams`, mismo nivel) contra cada
+    transecto vía `compute_intersections` — el contorno ve la escena
+    completa en 2D, no confunde el blob aislado con el cuerpo de agua
+    principal. Si el ajuste local no bracketea el nivel alrededor de la
+    semilla (la meseta espuria: nunca vuelve a cruzar), se reporta la
+    semilla misma (`sigma_m=NaN`) en vez de `None` — el resultado sembrado
+    nunca es peor que el Otsu que lo originó. Sin semilla (`None`) el
+    comportamiento es exactamente el de antes.
+  - **Validación end-to-end** (mismo experimento): Viña 153.73 m →
+    **24.57 m** (n pasó de 20 a 79, por encima de los 77 de `intersect`);
+    Arica 8.62 m → 9.66 m pero con cobertura casi duplicada (259 → 397).
+    **Global: 13.21 m (Otsu+intersect, baseline actual) → 11.66 m (profile
+    sembrado) con ~32% más transectos cubiertos** — supera al baseline de
+    producción, no solo empata.
+  - 2 tests nuevos en `subpixel.rs` (meseta espuria + fallback a la
+    semilla; refinamiento real con semilla imprecisa). 66 tests unitarios
+    (64+2), pixel_locking + extract_integration OK, clippy limpio en el
+    código tocado (lint preexistente no relacionado en `otsu.rs` por drift
+    de versión de clippy, no tocado en esta sesión).
+  - **Pendiente**: activar `profile` sembrado como default de
+    `extract`/`baseline` para SR (hoy solo `profile` lo usa); evaluar si
+    conviene igual para TOA (no debería empeorar, activa el mismo
+    fallback-nunca-peor-que-semilla).

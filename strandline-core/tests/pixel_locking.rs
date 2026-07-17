@@ -92,7 +92,7 @@ fn profile_fit_vs_contour_intersection_realistic() {
             if let Some(s) = contour_intersection_estimate(&raster, &transect) {
                 err_contour.push(s - s_true);
             }
-            if let Some(fit) = fit_profile(&raster, &transect, LEVEL, &settings) {
+            if let Some(fit) = fit_profile(&raster, &transect, LEVEL, None, &settings) {
                 err_profile.push(fit.chainage_m - s_true);
             }
         }
