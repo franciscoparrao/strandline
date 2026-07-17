@@ -20,7 +20,7 @@
 use ndarray::Array2;
 use surtgis_core::raster::{GeoTransform, Raster};
 
-use crate::transects::Transect;
+use crate::transects::{generate_transects, Transect};
 
 /// Parámetros del ajuste de perfil.
 #[derive(Debug, Clone, Copy)]
@@ -483,6 +483,46 @@ pub fn fit_profiles(
     }
 }
 
+/// Refina subpixel una polilínea de contorno (p. ej. la salida cruda de
+/// marching squares, con pixel-locking) generando mini-transectos
+/// perpendiculares locales a lo largo de ella — reusa [`generate_transects`]
+/// tratando la propia línea como "línea base", así que cada mini-transecto
+/// queda centrado en el punto re-muestreado por construcción — y ajustando
+/// el borde sigmoide con semilla en ese centro.
+///
+/// Cada punto refinado reemplaza al re-muestreado original si el ajuste
+/// local converge y bracketea `level`; si no, conserva la posición
+/// sembrada sin refinar ([`fit_profile`] con semilla nunca devuelve
+/// `None`) — el resultado nunca es más grosero que el contorno de entrada,
+/// solo potencialmente más preciso.
+///
+/// `spacing_m`: separación entre puntos a refinar a lo largo del arco de
+/// `line`. El semiancho de los mini-transectos generados es
+/// `settings.window_m` — el mismo que usa el ajuste, así que la ventana de
+/// muestreo siempre coincide exactamente con la ventana de ajuste (sin
+/// riesgo de recortar el borde por un mini-transecto más corto que la
+/// ventana). La dirección de la normal (qué lado es "positivo") es
+/// arbitraria — el ajuste no depende de esa convención, solo la posición
+/// del cruce en el mundo, que se recupera igual para cualquier signo.
+pub fn refine_line_subpixel(
+    raster: &Raster<f32>,
+    line: &[(f64, f64)],
+    level: f64,
+    spacing_m: f64,
+    settings: &ProfileSettings,
+) -> Vec<(f64, f64)> {
+    if line.len() < 2 {
+        return line.to_vec();
+    }
+    let half = settings.window_m;
+    let mini_transects = generate_transects(line, spacing_m, 2.0 * half, (1.0, 0.0));
+    mini_transects
+        .iter()
+        .filter_map(|t| fit_profile(raster, t, level, Some(half), settings))
+        .map(|f| f.world)
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -699,5 +739,50 @@ mod tests {
             "chainage = {} vs 350.0 esperado",
             fit.chainage_m
         );
+    }
+
+    #[test]
+    fn refine_line_subpixel_mejora_un_contorno_pixel_locked() {
+        // borde vertical real en x=350 (uniforme en y, como synthetic_edge).
+        // Se simula un contorno "crudo" (marching squares) con el sesgo de
+        // pixel-locking típico: desplazado medio píxel (7.5 m) del borde
+        // real, y constante a lo largo de y (sin la variación real de un
+        // contorno diagonal, mismo espíritu que transect_at_row).
+        let x_true = 350.0;
+        let raster = synthetic_edge(x_true, 15.0, 0.0, 5);
+        let raw_line: Vec<(f64, f64)> = (5..35)
+            .map(|r| (x_true + 7.5, -(r as f64) * 15.0))
+            .collect();
+
+        let refined = refine_line_subpixel(
+            &raster,
+            &raw_line,
+            0.1, // mismo nivel que recovers_subpixel_edge_position
+            15.0,
+            &ProfileSettings::default(),
+        );
+
+        assert!(!refined.is_empty(), "no debería vaciar la línea");
+        let raw_err = 7.5_f64;
+        for &(x, _y) in &refined {
+            assert!(
+                (x - x_true).abs() < raw_err,
+                "punto refinado x={x} no mejora el crudo (offset {raw_err}) respecto a x_true={x_true}"
+            );
+        }
+        // al menos la mayoría debería quedar en precisión subpixel real
+        let n_close = refined.iter().filter(|&&(x, _)| (x - x_true).abs() < 1.0).count();
+        assert!(
+            n_close * 2 >= refined.len(),
+            "esperaba que al menos la mitad de los puntos refinados quedaran <1 m del borde real"
+        );
+    }
+
+    #[test]
+    fn refine_line_subpixel_linea_corta_pasa_intacta() {
+        let raster = synthetic_edge(300.0, 15.0, 0.0, 1);
+        let short = vec![(100.0, 0.0)];
+        let refined = refine_line_subpixel(&raster, &short, 0.1, 15.0, &ProfileSettings::default());
+        assert_eq!(refined, short);
     }
 }

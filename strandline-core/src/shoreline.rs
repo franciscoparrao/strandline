@@ -14,6 +14,7 @@ use crate::contour::find_contours;
 use crate::error::{Result, StrandlineError};
 use crate::index::{mndwi, nd_index};
 use crate::otsu::{balanced_otsu, otsu_threshold};
+use crate::subpixel::{refine_line_subpixel, ProfileSettings};
 
 /// Parámetros de extracción.
 #[derive(Debug, Clone)]
@@ -59,6 +60,18 @@ pub struct ExtractParams {
     pub cloud_min_size_px: usize,
     /// Tipo de banda de máscara: QA_PIXEL (Landsat) o SCL (Sentinel-2).
     pub mask_kind: MaskKind,
+    /// Refina subpixel las polilíneas del contorno (S1 aplicado sobre el
+    /// contorno mismo en vez de sobre transectos externos — ver
+    /// `subpixel::refine_line_subpixel`). `false` por default: preserva el
+    /// contorno pixel-locked de marching squares tal cual, byte-a-byte
+    /// idéntico a CoastSat (varias validaciones del proyecto dependen de
+    /// esa paridad exacta). Con `true`, cada línea se resamplea a
+    /// `subpixel_spacing_m` y se ajusta perpendicularmente; nunca queda
+    /// peor que el contorno crudo (ver `fit_profile` con semilla).
+    pub subpixel_refine: bool,
+    /// Separación (m) entre puntos a lo largo del contorno cuando
+    /// `subpixel_refine = true`.
+    pub subpixel_spacing_m: f64,
 }
 
 impl Default for ExtractParams {
@@ -76,6 +89,8 @@ impl Default for ExtractParams {
             dist_clouds_m: 300.0,
             cloud_min_size_px: 40,
             mask_kind: MaskKind::QaPixel,
+            subpixel_refine: false,
+            subpixel_spacing_m: 15.0,
         }
     }
 }
@@ -458,6 +473,26 @@ pub fn extract_shoreline(
         }
     }
     let t_contour = t3.elapsed().as_secs_f64() * 1000.0;
+
+    // S1 aplicado al contorno mismo (no a transectos externos): cada línea
+    // se resamplea y se ajusta perpendicularmente, sembrado en su propia
+    // posición pixel-locked — nunca queda peor que el contorno crudo (ver
+    // `refine_line_subpixel`). Se hace DESPUÉS del filtro de largo/buffer
+    // de nubes (misma topología de líneas que sin refinar) y ANTES de la
+    // reproyección de salida (necesita el CRS nativo del raster). Off por
+    // default: varias validaciones del proyecto dependen de reproducir el
+    // contorno de CoastSat byte-a-byte.
+    if params.subpixel_refine {
+        for line in lines.iter_mut() {
+            *line = refine_line_subpixel(
+                &ndwi,
+                line,
+                level.textbook as f64,
+                params.subpixel_spacing_m,
+                &ProfileSettings::default(),
+            );
+        }
+    }
 
     let classification_summary = classification.as_ref().map(|cls| {
         let (sand_px, whitewater_px, water_px) = cls.counts();

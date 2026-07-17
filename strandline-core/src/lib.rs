@@ -35,7 +35,7 @@ pub use qc::{classify, evaluate as qc_evaluate, ChangeClass, QcCriteria, QcReaso
 pub use rates::{compute_rates, Rates};
 pub use shoreline::{extract_shoreline, ExtractParams, Shoreline};
 pub use slope::{estimate_beach_slope, SlopeEstimate, SlopeSettings};
-pub use subpixel::{fit_profile, fit_profiles, ProfileFit, ProfileSettings};
+pub use subpixel::{fit_profile, fit_profiles, refine_line_subpixel, ProfileFit, ProfileSettings};
 pub use tide::{correct_chainage, TideCorrection};
 pub use transects::{
     compute_intersections, generate_transects, IntersectionSettings, Transect,

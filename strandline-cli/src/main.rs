@@ -18,7 +18,7 @@ use strandline_core::transects::{
 use strandline_core::cloud::MaskKind;
 use strandline_core::shoreline::prepare_scene;
 use strandline_core::slope::{estimate_beach_slope, SlopeSettings};
-use strandline_core::subpixel::{fit_profiles, ProfileSettings};
+use strandline_core::subpixel::{fit_profiles, refine_line_subpixel, ProfileSettings};
 use strandline_core::{extract_shoreline, ExtractParams};
 
 #[derive(Parser)]
@@ -75,6 +75,12 @@ enum Command {
         /// Tipo de banda de máscara: qa (Landsat QA_PIXEL) | scl (Sentinel-2 SCL).
         #[arg(long, default_value = "qa")]
         mask_kind: String,
+        /// Refina subpixel el contorno (ajuste de perfil S1 perpendicular a
+        /// la línea, sembrado en cada punto del propio contorno) en vez del
+        /// pixel-locking crudo de marching squares. Default false: preserva
+        /// paridad exacta con CoastSat para comparaciones/validación.
+        #[arg(long)]
+        subpixel_refine: bool,
         /// EPSG de salida (4326 o UTM WGS84 326xx/327xx). Con 4326 el
         /// GeoJSON es conforme a RFC 7946. Default: CRS nativo de la escena.
         #[arg(long)]
@@ -231,6 +237,11 @@ enum Command {
         /// Tipo de banda de máscara: qa (Landsat QA_PIXEL) | scl (Sentinel-2 SCL).
         #[arg(long, default_value = "qa")]
         mask_kind: String,
+        /// Refina subpixel el contorno de la escena elegida antes de
+        /// escribir el CSV (ver `extract --subpixel-refine`). Solo se
+        /// aplica una vez, a la ganadora — no a todas las candidatas.
+        #[arg(long)]
+        subpixel_refine: bool,
         /// CSV de salida (easting, northing) para `transects --baseline`.
         #[arg(short, long)]
         output: PathBuf,
@@ -558,6 +569,7 @@ fn main() -> anyhow::Result<()> {
             dist_clouds,
             cloud_min_size,
             mask_kind,
+            subpixel_refine,
             output_epsg,
             output,
         } => {
@@ -574,6 +586,8 @@ fn main() -> anyhow::Result<()> {
                 dist_clouds_m: dist_clouds,
                 cloud_min_size_px: cloud_min_size,
                 mask_kind: parse_mask_kind(&mask_kind)?,
+                subpixel_refine,
+                subpixel_spacing_m: 15.0,
             };
             let mut shoreline = extract_shoreline(&ms, mask.as_deref(), &params)
                 .with_context(|| format!("extracting shoreline from {}", ms.display()))?;
@@ -808,6 +822,7 @@ fn main() -> anyhow::Result<()> {
             coastsat_compat,
             dist_clouds,
             mask_kind,
+            subpixel_refine,
             output,
         } => {
             let params = ExtractParams {
@@ -823,6 +838,8 @@ fn main() -> anyhow::Result<()> {
                 dist_clouds_m: dist_clouds,
                 cloud_min_size_px: 40,
                 mask_kind: parse_mask_kind(&mask_kind)?,
+                subpixel_refine: false, // el contorno crudo decide la selección; se refina solo la ganadora
+                subpixel_spacing_m: 15.0,
             };
 
             let mut ms_paths: Vec<PathBuf> = std::fs::read_dir(&dir)
@@ -834,6 +851,8 @@ fn main() -> anyhow::Result<()> {
             anyhow::ensure!(!ms_paths.is_empty(), "sin escenas *_ms.tif en {}", dir.display());
 
             let mut candidates = Vec::new();
+            let mut paths_by_label: std::collections::HashMap<String, (PathBuf, Option<PathBuf>)> =
+                std::collections::HashMap::new();
             for ms in &ms_paths {
                 let stem = ms.file_name().unwrap().to_string_lossy();
                 let label = stem.strip_suffix("_ms.tif").unwrap_or(&stem).to_string();
@@ -850,6 +869,7 @@ fn main() -> anyhow::Result<()> {
                                 "  {label}: {} fragmentos, {:.0} m el más largo",
                                 cand.n_fragments, cand.arc_length_m
                             );
+                            paths_by_label.insert(label.clone(), (ms.clone(), mask_opt.map(PathBuf::from)));
                             candidates.push(cand);
                         } else {
                             eprintln!("  {label}: sin líneas extraídas, omitida");
@@ -860,15 +880,30 @@ fn main() -> anyhow::Result<()> {
             }
             anyhow::ensure!(!candidates.is_empty(), "ninguna escena produjo una shoreline utilizable");
 
-            let chosen = strandline_core::baseline::select_baseline(candidates)
+            let mut chosen = strandline_core::baseline::select_baseline(candidates)
                 .context("selección de línea base falló inesperadamente")?;
+            if subpixel_refine {
+                let (ms, mask_opt) = paths_by_label
+                    .get(&chosen.label)
+                    .expect("la escena ganadora debe estar en paths_by_label");
+                let scene = prepare_scene(ms, mask_opt.as_deref(), &params)
+                    .with_context(|| format!("preparando {} para refinamiento subpixel", ms.display()))?;
+                chosen.line = refine_line_subpixel(
+                    &scene.mndwi,
+                    &chosen.line,
+                    scene.level_textbook as f64,
+                    params.subpixel_spacing_m,
+                    &ProfileSettings::default(),
+                );
+            }
             strandline_core::baseline::write_baseline_csv(&chosen.line, &output)
                 .with_context(|| format!("escribiendo {}", output.display()))?;
             eprintln!(
-                "elegida: {} ({} fragmentos, {:.0} m) -> {}",
+                "elegida: {} ({} fragmentos, {:.0} m{}) -> {}",
                 chosen.label,
                 chosen.n_fragments,
                 chosen.arc_length_m,
+                if subpixel_refine { ", refinada subpixel" } else { "" },
                 output.display()
             );
         }
