@@ -942,3 +942,49 @@ benchmark (software + accuracy vs CoastSat + velocidad).
     ratio más chico aquí es esperable dado qué residuo se usa, y aun así
     el efecto en el WLR final es real y medible (2× mejor vs el paper).
     Dirección consistente en ambos métodos: L8 siempre el más preciso.
+
+- **2026-07-17 (5)**: **Extensión a los otros 3 sitios con satname en
+  `/mnt/kingston` (Coquimbo, Constitución, Valdivia) — resultado MIXTO,
+  no una mejora universal**. Reusando directamente `cross_distance_clean`
+  de los `{SITE}_analysis.pkl` (sin re-extraer nada), se calibraron pesos
+  y se comparó el WLR resultante contra `rates_all` (ground truth del
+  paper) igual que con Viña:
+  ```
+                mediana error (pesos reales vs uniforme)   % transectos donde pesos reales ganan
+  Viña          0.023 vs 0.055 m/año  (2.4× mejor)          77%  (ya reportado)
+  Constitución  0.060 vs 0.315 m/año  (5.2× mejor)          88%
+  Coquimbo      0.158 vs 0.024 m/año  (6.6× PEOR)           16%
+  Valdivia      0.385 vs 0.291 m/año  (1.3× peor)           32%
+  ```
+  **Conclusión honesta: 2 de 4 sitios mejoran fuerte (Viña, Constitución),
+  2 empeoran (Coquimbo, Valdivia)**. Se investigaron dos hipótesis para la
+  asimetría, ninguna la explica limpiamente:
+  - Presencia de terremoto (`earthquake_date`): Coquimbo (Illapel 2015) y
+    Constitución (Maule 2010) TIENEN salto sísmico documentado — pero uno
+    mejora mucho y el otro empeora mucho. No es el factor.
+  - Densidad temporal (escenas/año): Coquimbo tiene la menor densidad
+    (9.7/año vs 18-30/año en los otros 3) — podría explicar por qué el
+    detrend OLS por transecto en Coquimbo específicamente es más ruidoso/
+    menos confiable (menos puntos para estimar la tendencia), pero
+    Valdivia tiene densidad similar a Viña (18.4 vs 18.9/año) y aun así
+    empeora — no explica Valdivia.
+  - **Causa real: sin identificar todavía.** El mecanismo (calibrar y
+    aplicar pesos reales) funciona correctamente en los 4 sitios — el
+    problema es que el detrend OLS *lineal simple* por transecto (sin
+    deseasonalizar, sin manejar saltos no-lineales como sismos, pooled
+    directo sobre observaciones crudas) no aísla de forma confiable el
+    componente de precisión-por-sensor en todos los sitios; en algunos
+    queda contaminado por otra cosa (posiblemente el mismo tipo de ruido
+    de intersecciones múltiples que ya se sabe domina el SCE, o eventos
+    reales no lineales mal atribuidos a un satélite por coincidencia
+    temporal).
+  - **Recomendación**: `rates --satellite-weights` es una herramienta
+    correcta y validada (el mecanismo, los tests, el caso de Viña/
+    Constitución), pero **no aplicar a ciegas** — validar sitio por sitio
+    contra un WLR de referencia antes de confiar en el resultado
+    calibrado, exactamente como se hizo acá. No asumir que "más real que
+    el proxy" implica "siempre mejor" sin verificar.
+  - Script ad hoc de esta validación (no guardado como archivo del
+    repo, construido inline en la sesión): reusa `cross_distance_clean`
+    + `{SITE}_output.pkl` de `/mnt/kingston` para satname + `rates_all`
+    del `analysis.pkl` como ground truth — replicable si se retoma.
