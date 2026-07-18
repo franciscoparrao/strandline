@@ -988,3 +988,60 @@ benchmark (software + accuracy vs CoastSat + velocidad).
     repo, construido inline en la sesión): reusa `cross_distance_clean`
     + `{SITE}_output.pkl` de `/mnt/kingston` para satname + `rates_all`
     del `analysis.pkl` como ground truth — replicable si se retoma.
+
+- **2026-07-18**: **Causa real de la asimetría, identificada — el "ground
+  truth" contra el que se validaba es él mismo una heurística arbitraria,
+  no una medición**. Se releyó el código Python original del paper
+  (`scripts/02_transects_rates.py`, usado para Viña; `scripts/
+  13_site_analysis.py`, usado genéricamente para Coquimbo/Constitución/
+  Valdivia) y ambos calculan `WLR_m_yr` con la MISMA tabla de pesos fija,
+  reciclada idéntica en los 6 sitios sin calibrar nada por sitio:
+  ```python
+  w = 1/15 si L5/L7, 1/10 si L8/L9, 1/7 si otro (S2)
+  ```
+  Reproducir esa fórmula exacta da error ~0.0000-0.0004 m/año contra
+  `WLR_m_yr` en los 4 sitios — confirma que es literalmente la fórmula que
+  generó el "ground truth", no una precisión real medida por sitio.
+  - Comparando esa heurística contra la varianza real calibrada
+    (`satellite_weights::calibrate`, satname real de `/mnt/kingston`):
+    ```
+                  orden real de std (m)                          ¿dirección coincide con heurística?   magnitud del ratio
+    Viña          L8=115 < L9=128 < L7=135 < L5=137              sí                                     ~1.4x
+    Constitución  L9=147 < L8=151 < L7=178 ≈ L5=178              sí                                     ~1.5x
+    Coquimbo      L8=44  < L9=46  < L7=49  < L5=80               sí                                     ~3.3x  (grande)
+    Valdivia      L5=126 < L8=147 < L9=153 < L7=171               NO — L5 es el más preciso, L7 el peor  ~1.8x
+    ```
+  - Se probó también si el problema era de forma funcional (`calibrate()`
+    usa peso=1/varianza; el paper usa 1/σ). Cambiar a 1/σ mejora mucho
+    Coquimbo (error 0.160→0.064 m/año) pero empeora Constitución
+    (0.054→0.200) — es un contribuyente real pero no la causa raíz.
+  - **Conclusión**: el calibrador no está mal — el punto de comparación sí
+    es arbitrario. Calibrar con datos reales solo "gana" contra el
+    heurístico cuando el ruido real por satélite del sitio coincide en
+    dirección y magnitud con ese supuesto global de 15/15/10/10/7:
+    - Viña/Constitución: coinciden en dirección y la magnitud real es
+      modesta → calibrar ayuda.
+    - Coquimbo: coincide en dirección pero la magnitud real (3.3×) excede
+      mucho lo que la heurística asume → el peso cuadrático (1/var)
+      sobrecorrige y se aleja del heurístico.
+    - Valdivia: la dirección misma está invertida (L5 no es el peor sensor
+      ahí) → cualquier calibración real diverge del heurístico casi por
+      definición.
+  - Dato adicional: el R² mediano de la tendencia lineal por transecto es
+    bajísimo en los 4 sitios (0.02-0.06) — la mayor parte del "residuo"
+    atribuido a satélite es en realidad ruido de otra fuente
+    (intersecciones múltiples, marea), no precisión de sensor pura. Limita
+    cuánto puede decir este método sobre precisión real por satélite.
+  - **Recomendación revisada**: no perseguir el WLR heurístico del paper
+    como ground truth para validar `--satellite-weights` — no es
+    independientemente correcto, es la misma suposición reciclada en los 6
+    sitios. La adenda anterior ("no aplicar a ciegas, validar sitio por
+    sitio") sigue vigente, pero el criterio de validación debe cambiar: no
+    "¿se acerca al WLR del paper?" sino algo que mida precisión real
+    (p. ej. held-out split, o los tests sintéticos ya validados en
+    `satellite_weights.rs`). Cierra la pregunta abierta de la asimetría —
+    no queda como misterio pendiente.
+  - Script ad hoc de esta sesión (no guardado como archivo del repo):
+    reusa los mismos insumos de la adenda anterior + relectura de
+    `scripts/02_transects_rates.py` y `scripts/13_site_analysis.py` para
+    extraer la fórmula de pesos original del paper.
