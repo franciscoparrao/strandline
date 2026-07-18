@@ -1045,3 +1045,72 @@ benchmark (software + accuracy vs CoastSat + velocidad).
     reusa los mismos insumos de la adenda anterior + relectura de
     `scripts/02_transects_rates.py` y `scripts/13_site_analysis.py` para
     extraer la fórmula de pesos original del paper.
+
+- **2026-07-18 (2)**: **Búsqueda dirigida al corpus Pardo-Pascual/UPV
+  (SHOREX/SAET) sobre transectos dinámicos vs fijos — laguna cerrada, con
+  matiz importante para el paper**. La investigación SOTA de la adenda de
+  2026-07-17 (2) no había penetrado este corpus; ahora sí (búsqueda
+  dirigida + snippets convergentes; los full-text de ScienceDirect/MDPI
+  dan 403, pero el hallazgo central aparece consistente en múltiples
+  fuentes independientes).
+  - **Hallazgo central**: SHOREX (Pardo-Pascual et al. 2018, *Coastal
+    Engineering*, "An efficient protocol for accurate and massive
+    shoreline definition...") usa deliberadamente **una única línea de
+    referencia aproximada FIJA para todo el conjunto de imágenes** —
+    textual: "replacing the pixel level lines... by a *unique approximate
+    line for the whole set of images*, which can be obtained either from a
+    pre-existing cartographic source or from a coarse photo-interpretation
+    on an orthophoto close in time to the studied period". Es el diseño
+    OPUESTO al hallazgo propio de la adenda 10 (mini-transectos frescos por
+    escena > transectos fijos). Pero es una **decisión de eficiencia**
+    (evitar thresholding por imagen → co-registro + procesamiento masivo
+    automático), no una afirmación de que la geometría fija sea más exacta.
+  - **Matiz que evita sobre-reclamar**: la línea fija de SHOREX es una
+    *semilla de extracción* (ventana de búsqueda donde el kernel subpixel
+    encuentra la posición real por imagen), NO un transecto de cálculo de
+    tasas estilo DSAS. Mi hallazgo es sobre el paso de tasas/refinamiento
+    (CoastSat-lineage + `subpixel-refine` propio). Comparación análoga, no
+    idéntica — no decir que SHOREX "está mal".
+  - **El "adaptive" de UPV NO es la línea**: en Sánchez-García et al. 2019
+    ("A New Adaptive Image Interpolation Method...", *Remote Sensing*
+    11(16):1880) lo adaptativo es el **kernel/ventana de interpolación**
+    (combinaciones de 16 o 36 píxeles de mayor variación radiométrica),
+    reemplazando el stencil fijo 7×7 de Pardo-Pascual et al. 2012 (*RSE*).
+    La geometría de la línea de referencia sigue siendo fija. Confirmado.
+  - **El otro linaje (CoastSat/CoastSeg/Shoreline Monitor/Castelle 2024/
+    USGS) también usa transectos fijos** ("Baseline and Transects", típico
+    50 m) + suavizado espacial post-hoc para costas complejas — ya
+    documentado en la adenda SOTA, reconfirmado aquí (2024-2026: CoastSeg,
+    Long Island, Atlántico europeo, todos fijos; ninguna regeneración
+    por-escena).
+  - **Nadie aísla el error geométrico**: en ambos linajes el error en
+    costa compleja se atribuye a *spectral mixing* (SHOREX: rocoso,
+    vegetado, meso-macrotidal) o a intersecciones múltiples/no-linealidad
+    (CoastSat), y se maneja con QC/suavizado — **NO** con regeneración de
+    la geometría del transecto. Nadie compara fijo-vs-por-escena ni
+    cuantifica la *desalineación shore-normal del transecto fijo* como
+    fuente de error distinta. Esa es la laguna real.
+  - **Framing correcto para el paper C&G** (reemplaza el pendiente de
+    "buscar si existe literatura"): NO reclamar que "transectos frescos por
+    escena" sea una idea nueva — la geometría de referencia fija es el
+    estándar deliberado en ambos linajes. SÍ reclamar, correctamente
+    acotado: *aislamos y cuantificamos una fuente de error geométrico (la
+    desalineación shore-normal del transecto fijo) que los enfoques
+    estándar de geometría fija arrastran en silencio, y mostramos que
+    regenerar la geometría por escena la reduce en costas complejas/
+    dinámicas*.
+  - **Consistencia interna que fortalece el argumento**: el hallazgo propio
+    (adenda 10) mostró que la geometría fija/sembrada solo GANA en Viña/
+    Arica (costas rectas simples) y PIERDE en las 4 complejas. SHOREX
+    valida su línea fija justo en playas microtidales rectas del
+    Mediterráneo (Cala Millor, Valencia) — exactamente el tipo de costa
+    donde mi hallazgo dice que la geometría fija está bien. Los dos
+    resultados son consistentes; el aporte propio extiende el cuadro a
+    costas complejas donde SHOREX no se validó primariamente. Honesto y
+    defendible.
+  - Referencias clave del corpus (para el .bib del paper): Pardo-Pascual
+    et al. 2012 (*RSE*, subpixel 7×7 fijo); Sánchez-García et al. 2017 /
+    2019 (*RS* 11(16):1880, kernel adaptativo); Pardo-Pascual et al. 2018
+    (*Coastal Eng.*, SHOREX, línea única fija); Palomar-Vázquez et al.
+    2023 (*RS* 15(12):3198, SAET); Sánchez-García/Cabezas-Rabadán et al.
+    2023 (*Coastal Eng.*, assessment SAET).
