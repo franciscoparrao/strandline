@@ -1,0 +1,721 @@
+\documentclass[authoryear,preprint,review,12pt]{elsarticle}
+
+\usepackage{amssymb}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{lineno}
+\usepackage{hyperref}
+\usepackage{graphicx}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, positioning, fit, backgrounds}
+
+\journal{Computers \& Geosciences}
+
+\begin{document}
+
+\begin{frontmatter}
+
+\title{strandline: a dependency-light Rust engine for satellite-derived
+shoreline extraction and change analysis, benchmarked against CoastSat
+along the coast of Chile}
+
+\author[1]{Francisco Parra-O.\corref{cor1}}
+\ead{francisco.parra.o@usach.cl}
+\cortext[cor1]{Corresponding author}
+
+\affiliation[1]{organization={Departamento de Ingenier\'ia Inform\'atica,
+            Universidad de Santiago de Chile},
+            city={Santiago},
+            country={Chile}}
+
+\begin{abstract}
+Satellite-derived shorelines have become central to coastal-change analysis, and
+open Python tools such as CoastSat have made them widely accessible. These tools
+democratised the method but do not scale: they are interpreted pipelines built on
+a heavy, fragile dependency chain, and reprocessing thousands of kilometres of
+coast over decades is slow and hard to reproduce. We present \textbf{strandline},
+a dependency-light Rust engine that ports the CoastSat method --- water index,
+pixel classification, class-balanced Otsu threshold and sub-pixel marching-squares
+contour --- into a single compiled binary and extends it with a native harmonic
+tidal-correction synthesis, vectorised and parallel transect intersection, and
+full DSAS-style change rates with quality control. Each stage is validated against
+its reference: classification to within $1.5\%$ of CoastSat pixel-wise, tidal
+prediction to $1.15$~mm against \texttt{pyTMD}, and transect intersection, rates
+and quality control to rounding against a national erosion study. On matched
+scenes the engine reproduces the CoastSat shoreline to a median of $0.2$--$0.3$~m,
+while the transect-intersection step runs about $197\times$ faster than the
+vectorised Python reference and the whole tool installs in one command. Across a
+six-site benchmark spanning $24^\circ$ of latitude along the coast of Chile we
+also report two findings with deliberately bounded claims: fixed transect geometry
+carries a silent shore-normal misalignment error that regenerating geometry per
+scene reduces by $\approx18\%$ on complex coasts, and inter-sensor precision ---
+which weighted change rates depend on --- is real but site dependent and must be
+calibrated and validated per site. strandline removes the dependency and
+performance barriers to satellite-derived-shoreline analysis at scale, and is
+released open source with a citable archive.
+\end{abstract}
+
+\begin{highlights}
+\item A single-binary Rust engine ports and extends the CoastSat SDS pipeline
+\item Native harmonic tidal synthesis matches pyTMD to $\sim$1\,mm, no dependency chain
+\item Vectorised transect intersection runs $\sim$197$\times$ faster than the Python reference
+\item Median shoreline agreement with CoastSat $\sim$0.2\,m across six sites in Chile
+\item Per-scene transect geometry isolates and reduces fixed-transect misalignment error
+\end{highlights}
+
+\begin{keyword}
+satellite-derived shorelines \sep coastal erosion \sep CoastSat \sep Rust \sep
+tidal correction \sep shoreline change rates \sep DSAS \sep Chile
+\end{keyword}
+
+\end{frontmatter}
+
+\linenumbers
+
+%============================================================
+\section{Introduction}
+%============================================================
+Sandy coastlines concentrate population, infrastructure and ecological value, and
+they move: quantifying how shorelines have changed over decades is a prerequisite
+for erosion management, hazard assessment and coastal planning. The satellite
+record --- four decades of Landsat and, since 2015, Sentinel-2 --- has turned this
+from a survey problem into an image-analysis problem, and a family of open tools
+now extracts shorelines from that record at sub-pixel accuracy. Foremost among
+them is CoastSat \citep{vos2019coastsat}, a Python toolkit that couples a
+pixel classifier, a thresholded water index and a marching-squares contour to
+produce georeferenced, tide-correctable shorelines, and which has become the
+de-facto standard; CoastSeg \citep{fitzpatrick2024coastseg} builds a browser-based
+hub around it and the Doodleverse segmentation models, and the SHOREX/SAET line
+\citep{pardopascual2018shorex,palomarvazquez2023saet} offers an alternative
+sub-pixel extraction validated on Mediterranean beaches. A community benchmark now
+places the achievable accuracy of these methods at roughly $7$--$10$~m
+\citep{vos2023benchmark}.
+
+These tools democratised satellite-derived shorelines, but they share an
+architecture that becomes a bottleneck at scale. All are Python pipelines built on
+a heavy, fragile dependency chain --- GDAL bindings for I/O, scikit-learn for
+classification, and, for tidal correction, packages such as \texttt{pyfes} or
+\texttt{pyTMD} that are themselves awkward to install. In building a national,
+$40$-year erosion assessment for the coast of Chile
+\citep[][in review]{parra_erosion} we met the consequences directly: CoastSat's
+per-transect \texttt{compute\_intersection\_QC} took over twenty minutes for a
+single site of $\sim$180 transects against $\sim$800 shorelines; the tidal
+dependency existed only on one packaging channel and forced a mid-project
+migration; and reproducing the environment required source patches to the library
+itself. None of these is a flaw in the science of the method --- they are costs of
+the implementation, and they compound when the target is a thousand kilometres of
+coast processed over four decades.
+
+A natural response is a compiled engine: a single self-contained binary with no
+interpreter and no dependency resolution, parallelised across cores, that performs
+the same computation faster and installs in one step. This is the approach we have
+taken for other geoscientific workloads \citep[][in review]{surtgis}, but for
+satellite-derived shorelines no compiled tool exists --- to our knowledge the
+entire field is Python. There is thus an open niche for a challenger that is
+faithful to the established method yet built for scale, and a clear yardstick
+(CoastSat) to validate it against.
+
+We present \textbf{strandline}, a dependency-light Rust engine for
+satellite-derived shoreline extraction and change analysis. It ports the CoastSat
+method faithfully --- the same water index, the same classifier weights, an
+equivalent sub-pixel contour --- and validates each stage against CoastSat,
+\texttt{pyTMD} and the stored outputs of the Chilean erosion study, so that its
+speed is never bought with a change in result. It then adds three things the
+Python ecosystem provides only through external dependencies or not at all: a
+native harmonic tidal synthesis that removes the \texttt{pyfes}/\texttt{pyTMD}
+requirement, a vectorised and parallelised transect-intersection and change-rate
+stage, and native coordinate transforms and cloud handling. Concretely, this paper
+contributes:
+
+\begin{enumerate}
+  \item a faithful, single-binary Rust port of the CoastSat extraction pipeline,
+  validated pixel- and metre-wise against the reference (Sects.~\ref{sec:data}--\ref{sec:results});
+  \item a native harmonic tidal-correction synthesis, agreeing with \texttt{pyTMD}
+  to millimetres, that eliminates the tidal dependency chain (Sect.~\ref{subsec:tide});
+  \item a vectorised, parallel transect-intersection and DSAS change-rate stage
+  that reproduces the reference exactly while running roughly two orders of
+  magnitude faster (Sect.~\ref{sec:results});
+  \item the isolation and quantification of a geometric error --- the shore-normal
+  misalignment of fixed transects --- that both major tool lineages carry silently,
+  and evidence that regenerating transect geometry per scene reduces it on complex
+  coasts (Sect.~\ref{subsec:geom});
+  \item a six-site benchmark spanning $24^\circ$ of latitude along the coast of
+  Chile, comparing accuracy, speed and installation footprint against CoastSat
+  (Sects.~\ref{sec:data}--\ref{sec:results}).
+\end{enumerate}
+
+\noindent The remainder of the paper describes the engine and its validation
+(Sect.~\ref{sec:engine}), the study sites (Sect.~\ref{sec:data}) and benchmark
+design (Sect.~\ref{sec:methods}), the results (Sect.~\ref{sec:results}), and their
+implications and limits (Sects.~\ref{sec:discussion}--\ref{sec:limitations}).
+
+%============================================================
+\section{The strandline engine}\label{sec:engine}
+%============================================================
+strandline is a Rust workspace of two crates: a library, \texttt{strandline-core},
+that holds all numerical logic, and a command-line binary, \texttt{strandline-cli},
+that exposes it as composable subcommands (\texttt{extract}, \texttt{classify},
+\texttt{transects}, \texttt{intersect}, \texttt{tide}, \texttt{rates},
+\texttt{qc}, and the analysis tools \texttt{slope}, \texttt{stl} and
+\texttt{baseline}). Raster input/output, coordinate-reference-system handling and
+the underlying array substrate are provided by \texttt{surtgis-core}, a sibling
+geospatial engine; every other operation described below is implemented natively,
+so the compiled binary carries no Python, GDAL-binding or numerical-library
+runtime dependency.
+
+\subsection{Pipeline overview}
+The reference workflow maps a multispectral scene to per-transect change rates in
+a single directed chain (Fig.~\ref{fig:pipeline}): a georeferenced
+GeoTIFF/COG is read and a water index computed; pixels are classified into
+sand, water, whitewater and other; an adaptive threshold on the water index,
+restricted to the classified beach, defines the land--water boundary; a sub-pixel
+contour of that boundary yields the instantaneous shoreline; transects cast
+perpendicular to a smoothed baseline are intersected with the shoreline time
+series; the resulting cross-shore distances are optionally tide-corrected and
+reduced to erosion/accretion rates with per-transect uncertainty; and a set of
+quality-control criteria flags unreliable transects. Each stage is also a
+standalone entry point, so the engine can be used as a full pipeline or as
+individual, scriptable operators.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{figures/pipeline.pdf}
+  \caption{The strandline pipeline, grouped into three phases: shoreline
+  extraction (blue), transect geometry (green) and change analysis (orange).
+  Each box is a \texttt{strandline-core} operator, also exposed as the CLI
+  subcommand shown in monospace. A multispectral scene enters top-left and the
+  flow returns per-transect rates with quality-control flags at bottom-left. The
+  tidal-correction step (dashed) is optional and applies to the cross-shore
+  distances before rate fitting.}
+  \label{fig:pipeline}
+\end{figure}
+
+\subsection{Water index and pixel classification}
+The land--water contrast is captured by the Modified Normalised Difference Water
+Index \citep{vos2019coastsat},
+\begin{equation}
+  \mathrm{MNDWI} = \frac{\rho_\mathrm{Green} - \rho_\mathrm{SWIR1}}
+                        {\rho_\mathrm{Green} + \rho_\mathrm{SWIR1}},
+  \label{eq:mndwi}
+\end{equation}
+computed together with the other normalised-difference indices used downstream.
+Normalised differences are numerically fragile where the denominator approaches
+zero: Landsat Collection~2 surface-reflectance products admit small negative
+reflectances after atmospheric correction, and a handful of pixels where
+$\rho_\mathrm{Green}+\rho_\mathrm{SWIR1}$ crosses zero can produce values of
+hundreds to thousands rather than a bounded index, corrupting the downstream
+histogram. The index routine therefore rejects (sets to \texttt{NaN}) any result
+whose magnitude exceeds a guard value of $5.0$ --- large enough to pass genuine
+but moderate excursions slightly outside $[-1,1]$ that the reference
+implementation also tolerates, while removing true numerical blow-ups.
+
+Pixels are classified with the same four-class multilayer perceptron distributed
+with CoastSat. The trained scikit-learn weights are converted once to an embedded
+JSON blob (52.9~kB) compiled into the binary, so classification requires no
+Python or scikit-learn at run time. The 20-element feature vector replicates the
+reference exactly: the five spectral bands, five normalised-difference indices,
+and the $3\times3$ local standard deviation of each, computed \texttt{NaN}-aware
+with reflect padding. A forward pass assigns each pixel its class, after which
+small connected components are removed (8-connectivity) to suppress speckle. On a
+held-out test scene the classified pixel counts agree with the CoastSat reference
+to within $1.5\%$.
+
+\subsection{Threshold and sub-pixel contour extraction}
+Within the sand-and-water region the land--water boundary is placed by an Otsu
+threshold on the water index. Because the beach classes are typically imbalanced,
+we use a class-balanced variant (\texttt{balanced\_otsu}) that weights the two
+populations equally and is fully deterministic. The shoreline is then extracted
+as a sub-pixel contour of the thresholded index by a marching-squares algorithm
+with linear interpolation along cell edges, reproducing the behaviour of
+\texttt{skimage.measure.find\_contours}.
+
+Cloud handling is explicit rather than incidental. The raw cloud mask is first
+cleaned by removing small connected components (4-connectivity, minimum 40
+pixels), which eliminates the false clouds that the CFMASK product places over
+whitewater and that otherwise fragment the coast. Remaining clouds are then
+buffered by a configurable distance (default 300~m) computed with an exact
+Euclidean distance transform \citep[after][]{felzenszwalb2012edt}, and shoreline
+polylines are split where they enter the buffer. Against the CoastSat shoreline
+for the same scenes this cloud treatment improves the median point-to-line
+agreement to $\approx0.20$~m and reduces coastal fragmentation substantially.
+
+\subsection{Native tidal correction}\label{subsec:tide}
+Tidal correction projects each instantaneous shoreline to a common datum along
+the beach face \citep{vos2019coastsat}. Given a water level $\eta$, a reference
+elevation $z_\mathrm{ref}$ and the beach-face slope $\tan\beta$, the horizontal
+correction applied to a cross-shore distance is
+\begin{equation}
+  \Delta x = \frac{\eta - z_\mathrm{ref}}{\tan\beta},
+  \qquad
+  x_\mathrm{corr} = x_\mathrm{raw} - \Delta x .
+  \label{eq:tide}
+\end{equation}
+Applied to the reference cross-shore distances this reproduces the paper's
+tide-corrected series exactly.
+
+The distinctive element is that water levels are synthesised natively, removing
+the dependency on \texttt{pyfes}/\texttt{pyTMD} that motivated much of this work.
+From a set of local harmonic constituents (the routine ships the thirteen
+principal ones: $M_2, S_2, N_2, K_2, K_1, O_1, P_1, Q_1, M_f, M_m, S_\mathrm{sa},
+S_a, M_4$) the engine evaluates the equilibrium tide using Doodson equilibrium
+arguments and Schureman nodal corrections, with mean astronomical longitudes from
+Meeus' series. Validated against \texttt{pyTMD} with GOT constituents, the phase
+of the equilibrium argument $V_0$ agrees to $<0.01^\circ$ and the total predicted
+level to a maximum error of $1.15$~mm for realistic central-Chile constituents.
+We note that this millimetre accuracy is a property of the synthesis \emph{given}
+correct constituents: the engine reads local harmonic constants from a CSV
+(SHOA port constants, or values exported once from a global model); the accuracy
+of any particular prediction is bounded by the constituents supplied, not by the
+synthesis.
+
+\subsection{Transect generation and vectorised intersection}
+Transects are generated shore-normal to a baseline: the baseline is resampled by
+arc length, its tangent estimated by central differences, and the outward normal
+oriented seaward from a hint point, so that each transect runs from land to sea.
+Generated from the reference shoreline this reproduces the transects of the
+reference dataset to a maximum coordinate error of $0.0$~m.
+
+Intersecting a shoreline time series with the transects is the step that
+dominates the cost of the Python pipeline, where the original CoastSat
+\texttt{compute\_intersection\_QC} is a per-transect Python loop. We reimplement
+it as a vectorised, \texttt{rayon}-parallel operator: for each transect, shoreline
+vertices within an along-transect strip are projected onto the shore-normal
+direction to give candidate chainages, reduced by \texttt{NaN}-aware statistics,
+and screened by the same quality-control tests as the reference (maximum standard
+deviation, maximum range, minimum number of points, with an
+\texttt{auto}/\texttt{max}/\texttt{nan} policy for multiple intersections).
+Against the paper's vectorised Python implementation over 200 synthetic shorelines
+$\times$ 250 transects (49{,}602 crossings) the two agree with zero mismatches in
+the \texttt{NaN} pattern produced by the quality control and a maximum chainage
+difference of $0.1$~mm. On the same problem the Rust operator runs in
+$0.059$~s against $11.63$~s for the vectorised Python reference, a
+$\approx197\times$ speed-up (Sect.~\ref{sec:results}); relative to the original
+per-transect CoastSat loop the gap is larger still.
+
+\subsection{Change rates and quality control}
+From each transect's cross-shore time series the engine computes the standard
+shoreline-change statistics: Net Shoreline Movement (NSM), Shoreline Change
+Envelope (SCE), End-Point Rate (EPR), Linear Regression Rate (LRR, with
+$R^2$ and 95\% confidence interval matching \texttt{scipy.stats.linregress}), and
+the Weighted Linear Regression rate (WLR) from a closed-form $2\times2$ weighted
+least-squares solve. Time is expressed in decimal years following the reference
+convention, and an optional iterative despiking step removes isolated
+outliers before regression. Against the reference \texttt{rates} table over 179
+transects the statistics match to rounding: NSM/SCE/EPR to $\sim5\times10^{-5}$~m,
+LRR/$R^2$/CI to $\sim10^{-6}$, and WLR to $\sim10^{-5}$~m\,yr$^{-1}$.
+
+Quality control applies the five criteria calibrated in the reference study, in a
+fixed order so that the reported reason is the first that fails: $|\mathrm{LRR}|
+\le 5$~m\,yr$^{-1}$, $\mathrm{SCE}\le 500$~m, temporal span $\ge 20$~yr, at least
+$50$ valid observations, and $R^2\ge 0.01$; retained transects are classified as
+erosional, stable or accretional at a $\pm0.5$~m\,yr$^{-1}$ threshold. Reproducing
+the reference labelling over the same 179 transects gives zero mismatches in both
+the exclusion flag and the failure reason.
+
+\subsection{Implementation, parallelism and reproducibility}
+The engine is written in safe Rust and parallelised with \texttt{rayon}. Parallel
+execution is a default feature that can be disabled to obtain a fully
+deterministic single-threaded binary; where both modes exist their outputs are
+bit-for-bit identical, so parallelism never changes a result. The classification
+stage in particular fuses feature computation and MLP inference into a single
+parallel pass (a \texttt{FeatureBank}) that avoids materialising the intermediate
+$n\times20$ feature matrix, which is the main scaling win. Coordinate
+transformations between UTM and geographic coordinates are implemented natively
+with Karney's series to fourth order, agreeing with \texttt{pyproj} to below
+1~mm including the negative-northing case produced by northern-hemisphere export
+grids, so no PROJ installation is required. The current version is covered by 84
+tests across the library and integration suites, including golden tests of the
+full GeoTIFF-to-shoreline path and of the ported MLP against the original
+scikit-learn outputs; the test suite passes in both parallel and single-threaded
+configurations and the code is \texttt{clippy}-clean. Source, the compiled
+crate and a reproducibility archive with a citable DOI are available
+(Sect.~\ref{sec:availability}).
+
+%============================================================
+\section{Data and study areas}\label{sec:data}
+%============================================================
+We evaluate the engine on six sites spanning roughly 24 degrees of latitude
+along the coast of Chile (Table~\ref{tab:sites}), from the hyper-arid Atacama
+margin at Arica ($\approx$18.5$^\circ$S) to the macro-tidal humid archipelago of
+Chilo\'e ($\approx$42.5$^\circ$S). The set was chosen to exercise the pipeline
+across contrasting coastal settings --- desert, semi-arid, central microtidal
+urban, river-mouth estuary, temperate estuary and archipelago --- and to include
+two large subduction earthquakes whose coseismic shoreline jumps stress the
+change-rate stage: the 2010 $M_w$~8.8 Maule event (Constituci\'on) and the 2015
+$M_w$~8.3 Illapel event (Coquimbo). The sites are the same ones used in a
+national coastal-erosion study \citep[][in review]{parra_erosion}, whose
+processed CoastSat outputs and derived rates serve as the reference against which
+we validate.
+
+Each site is a multidecadal time series of satellite-derived shorelines
+(1984/1985--2025, $\approx$40~yr) built from the Landsat archive
+(TM, ETM+, OLI/OLI-2; missions L5, L7, L8 and L9); Sentinel-2 is added at
+selected sites for the streaming and inter-mission experiments
+(Sect.~\ref{sec:results}). The number of usable scenes per site ranges from
+392 (Coquimbo) to 1{,}228 (Constituci\'on), reflecting differences in cloud
+climatology and revisit. Shore-normal transects are generated automatically from
+a smoothed baseline at each site (100--334 transects, Table~\ref{tab:sites}).
+Scenes enter the engine as multiband surface-reflectance GeoTIFFs; for the
+streaming experiments they are read directly from Cloud-Optimised GeoTIFFs on a
+public STAC catalogue without prior download.
+
+\begin{table}[t]
+  \centering
+  \small
+  \caption{Study sites, ordered north to south. Period and scene count refer to
+  the satellite-derived shoreline time series; transects are generated
+  shore-normal to the site baseline. UTM zones are WGS84 south.
+  $^\dagger$~Coseismic jump within the study period.}
+  \label{tab:sites}
+  \begin{tabular}{@{}lllrrr@{}}
+    \toprule
+    Site & Lat.\ ($^\circ$S) & Setting & UTM & Scenes & Transects \\
+    \midrule
+    Arica         & 18.5 & arid, desert            & 19S & 484 & 100 \\
+    Coquimbo$^\dagger$ & 30.0 & semi-arid          & 19S & 392 & 334 \\
+    Vi\~na del Mar & 33.0 & central, microtidal urban & 19S & 770 & 250 \\
+    Constituci\'on$^\dagger$ & 35.3 & river-mouth estuary & 18S & 1228 & 176 \\
+    Valdivia      & 39.8 & temperate estuary       & 18S & 753 & 334 \\
+    Chilo\'e      & 42.5 & macro-tidal archipelago & 18S & 680 & 316 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+%============================================================
+\section{Methods: benchmark design}\label{sec:methods}
+%============================================================
+The benchmark separates two questions that are often conflated: whether the
+engine \emph{reproduces} the reference method (correctness), and whether it is
+\emph{faster and lighter} while doing so (performance). We therefore validate
+each stage against an independent reference before comparing run time, so that
+speed is never bought with a silent change in output.
+
+\subsection{Validation against the reference pipeline}\label{subsec:validation}
+Each numerical stage is checked against the artefact that defines its correct
+answer. The ported classifier is compared pixel-for-pixel against CoastSat on
+held-out scenes and against the original scikit-learn network on golden feature
+vectors. Transect generation, intersection, change rates and quality control are
+checked against the reference study's stored per-transect tables: over the six
+sites, generated transects reproduce the reference geometry to micrometres,
+NSM/SCE/EPR match to $\sim5\times10^{-5}$~m and LRR/$R^2$/CI to $\sim10^{-6}$,
+and the quality-control labelling reproduces the reference exclusion flag and
+failure reason with zero mismatches. The tidal synthesis is validated against
+\texttt{pyTMD} (Sect.~\ref{subsec:tide}). These are equivalence checks, not accuracy claims:
+they establish that any downstream difference in a benchmark is attributable to
+the engine's own choices rather than to a porting error.
+
+\subsection{Accuracy against CoastSat}
+Positional accuracy is measured as the agreement between a strandline shoreline
+and the CoastSat shoreline for the \emph{same} scene, so that atmospheric,
+tidal and acquisition effects cancel and the comparison isolates the extraction
+method. For each pair we compute the symmetric point-to-line distance within a
+fixed cross-shore corridor and report its median, mean and 90th percentile over
+the scene set. The CoastSat reference is generated with pan-sharpening disabled
+to match the native sensor resolution. Where strandline reads Landsat
+Collection~2 surface reflectance while the CoastSat reference is top-of-atmosphere
+pan-sharpened, we report the comparison as inter-product (30~m SR versus 15~m
+pan-sharpened TOA) and interpret the residual accordingly; this sets a floor on
+achievable agreement that is independent of the port.
+
+\subsection{Speed, memory and installation}
+Run time is reported for the two stages that dominate cost --- the per-transect
+intersection and the per-pixel classification --- in both the deterministic
+single-threaded configuration and the default \texttt{rayon}-parallel one,
+against the vectorised Python reference and, for the intersection, against the
+original CoastSat \texttt{compute\_intersection\_QC} loop. We also report peak
+resident memory and, as a proxy for deployment friction, the installation
+footprint: a single \texttt{cargo install} producing a self-contained binary
+versus a Conda environment resolving the CoastSat dependency chain
+(GDAL, scikit-learn, \texttt{pyfes}/\texttt{pyTMD}). All timings are wall-clock
+on % TODO: hardware (CPU model, cores, RAM), warm cache, N repetitions, median.
+[hardware and protocol to be finalised].
+
+%============================================================
+\section{Results}\label{sec:results}
+%============================================================
+\subsection{Shoreline accuracy}
+On matched scenes of the same product the engine reproduces the CoastSat
+shoreline to sub-metre distances. Over six clear top-of-atmosphere scenes at
+Vi\~na del Mar the median point-to-line agreement is $0.2$--$0.3$~m with the
+classifier and CoastSat-compatible thresholding enabled, and $0.20$~m on the
+integration fixture (mean $2.9$~m, 90th percentile $1.2$~m) once cloud masking
+is applied. At these magnitudes --- a small fraction of the $30$~m native pixel
+--- the residual is dominated by the sub-pixel contour placement, not by any
+systematic offset, confirming that the port reproduces the reference method
+rather than merely approximating it.
+
+Operating on surface-reflectance imagery read directly from the cloud, agreement
+is coarser and set by product resolution rather than by the method: against the
+top-of-atmosphere CoastSat reference a Landsat Collection~2 surface-reflectance
+scene agrees to a median of $9.35$~m, an inter-product comparison of $30$~m
+surface reflectance against $15$~m pan-sharpened top-of-atmosphere that amounts
+to roughly $0.3$ native pixels and sits within the accuracy envelope reported for
+satellite-derived shorelines by \citet{vos2023benchmark}. This surface-reflectance
+figure, and how the geometry of the transect step moves it, is quantified across
+all six sites in Sect.~\ref{subsec:geom}.
+
+\subsection{Speed}
+The vectorised, parallel operators reproduce the reference outputs
+(Sect.~\ref{subsec:validation}) at a fraction of the cost. On the intersection benchmark ($250$ transects
+$\times$ $200$ shorelines) the engine runs in $0.059$~s against $11.63$~s for the
+vectorised Python reference, a $\approx197\times$ speed-up; measured against the
+original per-transect CoastSat \texttt{compute\_intersection\_QC} loop, which the
+reference study already replaced because it took tens of minutes, the gap spans
+several orders of magnitude. The classification stage, the other cost centre,
+drops from $\approx0.9$~s per scene sequentially to $\approx0.15$~s on 16 cores
+by fusing feature extraction and inference into a single parallel pass, giving a
+total of $\approx0.17$~s per scene, about $6\times$ faster than the CoastSat
+classifier. Extraction without the classifier runs at $\approx18$~ms per scene
+against $\approx1.17$~s for CoastSat ($\approx65\times$). Crucially the parallel
+and single-threaded outputs are bit-for-bit identical, so these speed-ups change
+only the run time, never the result.
+% TODO: fold in hardware and repetition protocol once fixed (Sect. 4.4).
+
+\subsection{Native tidal synthesis}
+The native harmonic synthesis matches \texttt{pyTMD} to millimetres: the phase of
+the equilibrium argument agrees to $<0.01^\circ$ and the total predicted water
+level to a maximum of $1.15$~mm over a realistic thirteen-constituent set for
+central Chile (and $<3$~mm once the annual solar constituent $S_a$ is carried
+with the correct astronomical argument). Applied to the reference cross-shore
+distances, the horizontal correction of Eq.~\ref{eq:tide} reproduces the
+reference study's tide-corrected series exactly.
+
+The beach-face slope needed by Eq.~\ref{eq:tide} can itself be estimated from the
+shoreline time series by minimising tidally-correlated residual energy. On
+synthetic data with Landsat-like sampling the estimator recovers the true slope
+to $\pm0.01$. On real data the picture matches the physical expectation: at
+micro-tidal Vi\~na del Mar the slope is not identifiable from Landsat alone --- the
+tidal signal is too small relative to sampling noise --- but a dense
+Sentinel-2 series (215 scenes, 2019--2025, read from the cloud) makes it
+identifiable, returning $0.097$ by direct regression, $0.105$ by the raw spectral
+sweep and $0.073$ after robust despiking, against a literature value of $\approx0.10$.
+Consistent with this, tidal correction does not reduce the \emph{aggregate}
+shoreline-change envelope at Vi\~na ($\approx500$~m, dominated by multiple
+intersections rather than tide); its effect is seen in the per-transect rates,
+not in the envelope.
+
+\subsection{Transect geometry: fixed versus per-scene}\label{subsec:geom}
+Both major satellite-derived-shoreline lineages compute change rates against a
+\emph{fixed} transect geometry generated once from a historical reference line
+--- CoastSat and the large-scale operational products cast fixed shore-normal
+transects, and the SHOREX/SAET family deliberately reuses a single approximate
+reference line for a whole image set for efficiency
+\citep{pardopascual2018shorex,palomarvazquez2023saet}. On a straight, stable
+coast this is well justified; on curved or rapidly changing coasts, however, a
+transect fixed to a past shoreline no longer approximates the local shore-normal
+of a given scene, and the cross-shore distance it returns is biased by that
+misalignment. This geometric error is distinct from the spectral and tidal error
+budgets usually reported, and to our knowledge has not been isolated before.
+
+We quantify it by comparing three geometries against the reference cross-shore
+distances over the surface-reflectance scenes of all six sites (Table~\ref{tab:geom}):
+the fixed-transect baseline (\texttt{intersect} against transects from the
+historical reference), the same transects seeded into a per-transect profile fit
+(\texttt{profile}), and transects regenerated per scene shore-normal to that
+scene's own contour (\texttt{extract\,-\,\,subpixel-refine}). Regenerating the
+geometry per scene gives the lowest error at every quantile and the widest
+coverage --- a median of $11.8$~m against $14.3$~m for the fixed baseline, an
+$\approx18\%$ reduction --- whereas seeding the \emph{fixed} transects into a
+finer fit does not help and slightly hurts. The per-scene advantage is largest
+exactly where the argument predicts: at the complex sites (the terraces of
+Coquimbo, the estuaries of Valdivia and Constituci\'on, the macro-tidal bays of
+Chilo\'e), while at the straight, stable coasts of Vi\~na and Arica the fixed and
+seeded geometries are competitive --- the same regime in which the fixed-line
+SHOREX design is validated. We therefore read this not as a claim that per-scene
+transects are novel in themselves, but as isolating and quantifying an error that
+fixed geometry carries silently, and showing where it matters.
+
+\begin{table}[t]
+  \centering
+  \small
+  \caption{Shoreline position error (m) of three transect geometries against the
+  reference cross-shore distances, pooled over surface-reflectance scenes at all
+  six sites. Lower is better; $n$ is the number of transect$\times$scene
+  measurements. Regenerating transect geometry per scene wins at every quantile
+  with the widest coverage.}
+  \label{tab:geom}
+  \begin{tabular}{@{}lrrrr@{}}
+    \toprule
+    Transect geometry & Median & Mean & P90 & $n$ \\
+    \midrule
+    Fixed transects (baseline)      & 14.29 & 57.32 & 120.39 & 3112 \\
+    Fixed, seeded profile fit       & 15.15 & 53.92 & 90.52 & 3523 \\
+    Per-scene regeneration          & \textbf{11.78} & \textbf{48.46} & \textbf{81.04} & 4325 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Per-satellite precision and weighting of rates}
+The weighted regression rate (WLR) needs a weight per observation, conventionally
+a fixed value assumed per satellite generation. The engine instead calibrates
+weights from the data: it detrends each transect, pools the residuals by
+satellite across all transects, and sets each weight to the inverse of the
+satellite's residual variance. The recovered standard deviations
+(Table~\ref{tab:satw}, for the four sites with per-observation satellite labels)
+show that inter-sensor precision is real but \emph{site-dependent}: Landsat~8 is
+among the two most precise sensors at all four sites and the single most precise
+at two of them, by as much as a factor of $\approx3.3$ in variance at Coquimbo
+(L5 $80$~m versus L8 $44$~m), yet the ordering is not universal --- at Valdivia
+the oldest sensor, Landsat~5, is the most precise and Landsat~7 the noisiest,
+inverting the usual assumption.
+
+This heterogeneity is the result. We deliberately do \emph{not} present the
+calibrated weights as ``more accurate'' by comparison against the reference
+study's WLR, because that reference rate is itself computed with a single fixed
+weight table ($1/15$ for L5/L7, $1/10$ for L8/L9, $1/7$ for Sentinel-2) recycled
+identically across all sites; agreement or disagreement with it therefore
+measures similarity to an assumption, not accuracy. What the data-driven
+calibration provides is a measurement, per site, of a quantity the fixed table
+only guesses --- and that measurement shows the guess is directionally right at
+some sites and wrong at others. A calibrated weighting is thus a tool to be
+validated per site against an independent rate, not applied blind
+(Sect.~\ref{sec:limitations}).
+
+\begin{table}[t]
+  \centering
+  \small
+  \caption{Residual standard deviation (m) by satellite, calibrated per site by
+  detrending each transect and pooling residuals. Smaller is more precise; the
+  most precise sensor at each site is in bold. Landsat~8 is consistently among
+  the most precise, but the ordering is not universal (Valdivia). Arica and
+  Chilo\'e are omitted for lack of per-observation satellite labels.}
+  \label{tab:satw}
+  \begin{tabular}{@{}lrrrr@{}}
+    \toprule
+    Site & L5 & L7 & L8 & L9 \\
+    \midrule
+    Vi\~na del Mar & 137.0 & 135.2 & \textbf{115.5} & 127.6 \\
+    Coquimbo       & 80.1  & 48.7  & \textbf{43.8}  & 45.7 \\
+    Constituci\'on & 177.9 & 177.6 & 150.7 & \textbf{146.7} \\
+    Valdivia       & \textbf{126.0} & 170.8 & 147.1 & 152.6 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+%============================================================
+\section{Discussion}\label{sec:discussion}
+%============================================================
+The benchmark supports a simple claim: a compiled port of an established
+satellite-derived-shoreline method can be simultaneously faithful and fast. Every
+stage reproduces its Python reference to rounding or to the pixel, yet the
+transect intersection --- the step that made multidecadal, multi-site analysis
+painful --- runs roughly two orders of magnitude faster, and the whole pipeline
+installs as one binary with no interpreter or dependency resolution. For the
+concrete task that motivated this work, reprocessing a thousand kilometres of
+coast over forty years, that difference is the difference between a multi-day job
+and a routine one. The engine does not compete with CoastSat on discovery or
+interactivity; it competes on throughput and reproducibility, and it treats
+CoastSat as the yardstick rather than the target to beat on accuracy.
+
+This framing also clarifies where our two methodological findings do and do not
+extend the literature. The fixed-transect geometry that both major lineages use is
+a deliberate, well-reasoned choice: SHOREX/SAET reuse a single approximate
+reference line for efficiency \citep{pardopascual2018shorex}, and CoastSat casts
+fixed shore-normal transects that downstream products smooth spatially. Crucially,
+these designs are validated on the coasts where they are sound --- SHOREX on
+straight microtidal Mediterranean beaches --- which is exactly the regime where our
+own comparison finds fixed and per-scene geometry competitive. Our contribution is
+therefore not to overturn fixed transects but to isolate a specific error they
+carry silently, the shore-normal misalignment on curved or fast-changing coasts,
+and to show that it is measurable and reducible. We could not find prior work that
+poses the fixed-versus-per-scene comparison directly, in either lineage, so we
+report the result as a quantified observation rather than a settled method, and
+flag it for independent confirmation.
+
+The per-satellite weighting result carries a similar caution about what counts as
+ground truth. Inter-sensor precision is real --- Landsat~8 is measurably sharper
+than its predecessors at most sites --- but its magnitude and even its ordering
+vary from site to site, and the conventional fixed weight table encodes a single
+guess about it. Calibrating weights from the data replaces that guess with a
+measurement, but the measurement is only trustworthy where it can be checked
+against an independent rate; applied blind, a data-driven weighting is no safer
+than the heuristic it replaces. The practical recommendation is to calibrate per
+site and validate per site, and to treat any weighting scheme --- fixed or
+calibrated --- as an assumption to be tested rather than a fact.
+
+Finally, a compiled engine is not a replacement for the Python ecosystem but a
+complement to it. Python's strengths --- notebook interactivity, direct Earth
+Engine access, the machine-learning stack --- are real and are where methods are
+developed and explored. Rust's strengths are deployment, parallelism and
+reproducible builds, which is where operational reprocessing lives. The two are
+most useful joined: a natural next step is a thin binding layer
+(PyO3, and WebAssembly for the browser) that lets strandline serve as a fast,
+dependency-free backend under the same tools coastal scientists already use, so
+that a CoastSeg session or a national reanalysis can offload its heavy stages to
+the engine without leaving Python.
+
+%============================================================
+\section{Limitations and future work}\label{sec:limitations}
+%============================================================
+Several limitations bound the present results. The most consequential concerns the
+pixel classifier. CoastSat's multilayer perceptron is trained on top-of-atmosphere
+imagery, and it does not transfer to surface-reflectance products: on
+Collection~2 surface reflectance it mislabels a large fraction of pixels, so the
+surface-reflectance pipeline falls back to a refined Otsu threshold without the
+classifier. We attempted to retrain a surface-reflectance classifier by automatic
+pseudo-labelling; it works on temperate, humid coasts but fails on arid ones,
+where bright desert soil is spectrally close to beach sand, and we therefore did
+not adopt it. A properly retrained surface-reflectance classifier would need
+manual labelling and is left as future work; the field currently lacks a public
+one.
+
+Two further limits are physical rather than computational. Beach-slope estimation
+from the shoreline series is only identifiable where the tidal signal is large
+relative to sampling noise: at micro-tidal sites it requires the denser
+Sentinel-2 record, and at macro-tidal sites it is comfortable with Landsat alone.
+And the per-satellite precision that governs rate weighting is, as shown, site
+dependent, so neither a fixed nor a calibrated weighting should be applied without
+per-site validation. The per-scene transect-geometry advantage, likewise, is
+quantified here against the reference study's cross-shore distances; an evaluation
+against independent survey ground truth would strengthen it, as would a targeted
+search of the SHOREX/SAET corpus for any prior treatment of the question.
+
+By design the first version processes imagery that has already been prepared:
+it extracts and analyses, but does not itself perform atmospheric correction,
+pan-sharpening, wave-setup or runup correction, and it has no graphical interface.
+The most promising extensions build on components already prototyped in the
+engine: pure-Rust deep-learning segmentation through a native inference crate,
+geographically-weighted conformal intervals for per-point uncertainty, and the
+seasonal-trend decomposition of transect series for temporal analytics. Together
+with the Python and WebAssembly bindings discussed above, these would move the
+engine from a fast reimplementation toward a platform for scaling
+satellite-derived-shoreline analysis to continental extents.
+
+%============================================================
+\section{Conclusions}
+%============================================================
+We have presented strandline, a dependency-light Rust engine that ports the
+CoastSat satellite-derived-shoreline method into a single compiled binary and
+extends it with a native tidal synthesis, vectorised transect and change-rate
+operators, and native coordinate and cloud handling. Validated stage by stage
+against CoastSat, \texttt{pyTMD} and the stored outputs of a national erosion
+study --- to the pixel in classification, to millimetres in tidal prediction, and
+to rounding in transect intersection, rates and quality control --- the engine
+reproduces the established method while running its bottleneck step roughly two
+orders of magnitude faster and installing in a single command. Across a six-site
+benchmark spanning $24^\circ$ of latitude along the coast of Chile it holds
+sub-metre agreement with CoastSat on matched scenes and remains within the
+community accuracy envelope on surface reflectance. Beyond the reimplementation,
+the benchmark surfaced two findings we report with deliberately bounded claims:
+that fixed transect geometry carries a silent shore-normal misalignment error,
+reducible by regenerating geometry per scene on complex coasts; and that
+inter-sensor precision, which rate weighting depends on, is real but site
+dependent and must be calibrated and validated per site. By removing the
+dependency and performance barriers that kept satellite-derived-shoreline analysis
+from scaling, strandline is intended less as a competitor to the Python ecosystem
+than as a fast, reproducible engine beneath it. The source, the compiled crate and
+the benchmark artefacts are openly available (Sect.~\ref{sec:availability}).
+
+%============================================================
+\section*{Code and data availability}\label{sec:availability}
+%============================================================
+% crates.io, GitHub, Zenodo DOI; six-site benchmark artefacts.
+
+\section*{Acknowledgements}
+
+\section*{Declaration of generative AI and AI-assisted technologies in the writing process}
+
+\bibliographystyle{elsarticle-harv}
+\bibliography{refs}
+
+\end{document}

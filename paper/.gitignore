@@ -1,0 +1,15 @@
+# LaTeX build artifacts (regenerable)
+*.aux
+*.bbl
+*.blg
+*.log
+*.out
+*.spl
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.toc
+*.lof
+*.lot
+# compiled manuscript (regenerable from paper.tex)
+paper.pdf
