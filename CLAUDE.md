@@ -1114,3 +1114,55 @@ benchmark (software + accuracy vs CoastSat + velocidad).
     (*Coastal Eng.*, SHOREX, línea única fija); Palomar-Vázquez et al.
     2023 (*RS* 15(12):3198, SAET); Sánchez-García/Cabezas-Rabadán et al.
     2023 (*Coastal Eng.*, assessment SAET).
+
+- **2026-07-21**: **PAPER C&G — primer borrador completo redactado**
+  (commit `719ab63`, local). El manuscrito para Computers & Geosciences
+  está montado en `paper/` y compila limpio (27 pág, sin refs/citas
+  indefinidas). Deja de ser "motor validado sin paper".
+  - **Andamiaje** (`/paper-figures-r` para figuras): clase Elsevier
+    `elsarticle` (`[authoryear,preprint,review,12pt]`, `\journal{Computers
+    & Geosciences}`), clonada del sibling `nowcast/docs/paper/nowcast-cageo.tex`
+    (mismo autor, mismo género software+benchmark, ya apuntado a C&G).
+    **NO** usar las plantillas CAS (`cas-sc`/`cas-dc`) — C&G quiere el
+    `elsarticle` genérico. `.gitignore` excluye artefactos de build;
+    `paper.pdf` no se versiona (regenerable).
+  - **Secciones redactadas** (todas con cifras validadas de la bitácora,
+    no inventadas): Abstract, Highlights, Introduction (posicionamiento vs
+    CoastSat/CoastSeg/SHOREX + pain-points concretos del estudio de Chile),
+    The strandline engine (7 subsecciones + **Fig. 1** pipeline en
+    R/ggplot2 `paper/R/fig1_pipeline.R`), Data and study areas (**Tabla 1**,
+    6 sitios con metadatos reales de los pickles), Methods: benchmark design
+    (principio explícito: validar correctitud ANTES de medir velocidad),
+    Results (5 subsecciones + **Tabla 2** geometría de transectos + **Tabla
+    3** varianza por satélite), Discussion, Limitations, Conclusions.
+  - **Framings delicados aplicados según adendas 15-16** (esto es lo que
+    hay que cuidar si se re-edita): (a) los pesos por satélite se reportan
+    como *heterogeneidad inter-sensor medida* (Tabla 3: L8 más preciso en 2
+    de 4 sitios, Coquimbo ~3.3×, Valdivia con orden invertido L5<L7), NO
+    como "validación de precisión" vs el WLR del paper —porque ese WLR es
+    una heurística fija (1/15,1/15,1/10,1/10,1/7) reciclada en los 6 sitios,
+    no ground truth; (b) transectos fijos vs per-scene (Tabla 2: per-scene
+    11.78 m vs fijo 14.29 m, ~18%) se reclama acotado a *aislar/cuantificar
+    un error geométrico que la geometría fija arrastra en silencio*, NO como
+    idea nueva —la geometría fija es el estándar deliberado (SHOREX/CoastSat).
+  - **Auto-corrección durante la redacción** (regla "mirar lo que se
+    genera"): al revisar la Tabla 3 renderizada caché un error propio en la
+    prosa ("L8 más preciso en 5 de 6 comparaciones" — solo calibré 4 sitios
+    y L8 lidera en 2); corregido al enunciado fiel a la tabla. Igual con la
+    Fig. 1: primera versión tenía 2 de 3 etiquetas de fase ocultas tras las
+    cajas; corregido subiendo el techo de las bandas.
+  - **Cifras centrales del paper** (todas ya validadas en adendas previas,
+    consolidadas en el manuscrito): classify <1.5% px vs CoastSat; tide
+    1.15 mm vs pyTMD; extract/intersect/rates/qc exactos vs pickle;
+    accuracy 0.2-0.3 m (mismo-producto TOA) / 9.35 m (inter-producto SR);
+    intersección ~197× (0.059 vs 11.63 s); classify ~6×; extract ~65×.
+  - **Pendientes del paper** (necesitan input externo, NO redacción):
+    Code/data availability (requiere repo remoto —no existe— + DOI Zenodo
+    vía `/zenodo`); hardware de los timings (correr benchmark en máquina
+    definida + protocolo de repeticiones, TODO marcado en §4.3/§5.2);
+    Acknowledgements + AI declaration (boilerplate del usuario); Fig. 2
+    opcional (mapa de los 6 sitios); overfull menores de tokens monospace
+    (`compute\_intersection\_QC`), cosméticos. El `.bib` tiene TODOs
+    (pyTMD/GOT/Castelle 2024/Warrick 2025) y entradas con detalles a
+    finalizar (`parra_erosion`, `surtgis`, DOI de CoastSeg a verificar con
+    `/verify-refs`).
