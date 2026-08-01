@@ -120,7 +120,7 @@ mod tests {
         // el umbral debe caer entre el fin de la moda baja (≈ -0.41) y el
         // inicio de la moda alta (0.5); con plateau, Otsu toma el primer argmax
         let t = otsu_threshold(vals).unwrap();
-        assert!(t >= -0.42 && t < 0.5, "t = {t}");
+        assert!((-0.42..0.5).contains(&t), "t = {t}");
     }
 
     #[test]

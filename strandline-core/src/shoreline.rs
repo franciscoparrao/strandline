@@ -316,7 +316,11 @@ pub fn prepare_scene(
 
     let classification: Option<Classification> = if use_classifier {
         let px_area = green.cell_size().powi(2);
-        let min_area_px = ((params.min_beach_area_m2 / px_area).round() as usize).max(1);
+        // `ceil`, no `round`: es lo que hace CoastSat
+        // (`np.ceil(min_beach_area/pixel_size**2)`, SDS_shoreline.py). Con
+        // `round`, un cociente como 1.11 daba 1 y el filtro de blobs se
+        // saltaba por completo (`classify` solo filtra si min_area_px > 1).
+        let min_area_px = ((params.min_beach_area_m2 / px_area).ceil() as usize).max(1);
         Some(classify_pixels(&bands, cloud_mask.as_ref(), min_area_px)?)
     } else {
         None
@@ -408,7 +412,11 @@ pub fn extract_shoreline(
     let t_classify_start = Instant::now();
     let classification: Option<Classification> = if use_classifier {
         let px_area = green.cell_size().powi(2);
-        let min_area_px = ((params.min_beach_area_m2 / px_area).round() as usize).max(1);
+        // `ceil`, no `round`: es lo que hace CoastSat
+        // (`np.ceil(min_beach_area/pixel_size**2)`, SDS_shoreline.py). Con
+        // `round`, un cociente como 1.11 daba 1 y el filtro de blobs se
+        // saltaba por completo (`classify` solo filtra si min_area_px > 1).
+        let min_area_px = ((params.min_beach_area_m2 / px_area).ceil() as usize).max(1);
         Some(classify_pixels(&bands, cloud_mask.as_ref(), min_area_px)?)
     } else {
         None

@@ -70,7 +70,15 @@ impl QcReason {
 /// **en orden**. Devuelve `None` si el transecto pasa todos, o
 /// `Some(reason)` con el primer criterio que falla.
 pub fn evaluate(rates: &Rates, c: &QcCriteria) -> Option<QcReason> {
-    if rates.lrr.abs() > c.max_abs_lrr {
+    // Cortocircuito de no-finitud: con `lrr`/`sce`/`years`/`r2` NaN toda
+    // comparación de abajo es falsa y el transecto pasaría los cinco
+    // criterios, quedando *retenido*. Se reporta como fallo del primer
+    // criterio, que es el que lee el LRR.
+    let non_finite = !rates.lrr.is_finite()
+        || !rates.sce.is_finite()
+        || !rates.years.is_finite()
+        || !rates.lrr_r2.is_finite();
+    if non_finite || rates.lrr.abs() > c.max_abs_lrr {
         Some(QcReason::AbsLrr)
     } else if rates.sce > c.max_sce {
         Some(QcReason::Sce)
@@ -97,6 +105,9 @@ pub enum ChangeClass {
 }
 
 /// Clasifica el cambio a partir del LRR (umbral típico 0.5 m/año).
+///
+/// Un `lrr` no finito cae en [`ChangeClass::Stable`] (ambas comparaciones son
+/// falsas). Filtrar antes con [`evaluate`], que rechaza esas tasas.
 pub fn classify(lrr: f64, threshold: f64) -> ChangeClass {
     if lrr < -threshold {
         ChangeClass::Erosion
@@ -130,6 +141,27 @@ mod tests {
     fn passes_all_criteria() {
         let r = rates_with(-0.5, 200.0, 40.0, 668, 0.3);
         assert_eq!(evaluate(&r, &QcCriteria::default()), None);
+    }
+
+    /// Sin el cortocircuito de no-finitud, un transecto con tasas NaN pasaba
+    /// los cinco criterios (toda comparación con NaN es falsa) y quedaba
+    /// retenido — el caso más corrupto posible aceptado como bueno.
+    #[test]
+    fn tasas_no_finitas_se_rechazan_en_vez_de_retenerse() {
+        let c = QcCriteria::default();
+        for r in [
+            rates_with(f64::NAN, 200.0, 40.0, 668, 0.3),
+            rates_with(-0.5, f64::NAN, 40.0, 668, 0.3),
+            rates_with(-0.5, 200.0, f64::NAN, 668, 0.3),
+            rates_with(-0.5, 200.0, 40.0, 668, f64::NAN),
+            rates_with(f64::INFINITY, 200.0, 40.0, 668, 0.3),
+        ] {
+            assert_eq!(
+                evaluate(&r, &c),
+                Some(QcReason::AbsLrr),
+                "tasa no finita debe excluirse: {r:?}"
+            );
+        }
     }
 
     #[test]

@@ -41,6 +41,12 @@ fn dist(a: (f64, f64), b: (f64, f64)) -> f64 {
 /// Muestrea la polilínea `line` a intervalos regulares de `spacing` metros
 /// de longitud de arco, devolviendo los puntos interpolados linealmente.
 fn resample_by_arclength(line: &[(f64, f64)], spacing: f64) -> Vec<(f64, f64)> {
+    // `spacing` no positivo o no finito haría `total/spacing` infinito o
+    // negativo: `as usize` satura a usize::MAX y el `+ 1` desborda (panic en
+    // debug, wrap a 0 en release — dos comportamientos, ambos malos)
+    if spacing <= 0.0 || !spacing.is_finite() {
+        return line.to_vec();
+    }
     // distancia acumulada
     let mut cum = vec![0.0f64];
     for w in line.windows(2) {

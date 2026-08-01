@@ -10,7 +10,7 @@ pub enum StrandlineError {
     Surtgis(#[from] surtgis_core::error::Error),
 
     /// Error de I/O al leer/escribir archivos propios (CSV, GeoJSON).
-    #[error("I/O error reading {path}: {source}")]
+    #[error("I/O error on {path}: {source}")]
     Io {
         /// Ruta del archivo involucrado.
         path: String,
@@ -44,6 +44,16 @@ pub enum StrandlineError {
     /// No hay píxeles válidos para calcular el umbral.
     #[error("no valid (finite) pixels to threshold")]
     NoValidPixels,
+
+    /// Parámetro fuera del dominio admisible (pendiente de playa no
+    /// positiva, spacing ≤ 0, etc.).
+    #[error("invalid parameter {name}: {reason}")]
+    InvalidParameter {
+        /// Nombre del parámetro.
+        name: String,
+        /// Por qué se rechaza el valor.
+        reason: String,
+    },
 }
 
 /// Alias de resultado del crate.

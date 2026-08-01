@@ -203,6 +203,8 @@ pub fn run(
     );
 
     let mut written = 0usize;
+    let mut failed_scenes = 0usize;
+    let mut skipped_existing = 0usize;
     for item in &items {
         let date = item
             .properties
@@ -261,7 +263,7 @@ pub fn run(
         let mask_path = out_dir.join(format!("{stem}_mask.tif"));
         if ms_path.exists() && mask_path.exists() {
             eprintln!("  {}: ya existe, omitida", item.id);
-            written += 1;
+            skipped_existing += 1;
             continue;
         }
 
@@ -303,6 +305,7 @@ pub fn run(
             bands.push(r);
         }
         if failed {
+            failed_scenes += 1;
             continue;
         }
 
@@ -337,6 +340,9 @@ pub fn run(
             let asset = item
                 .asset(mask_key)
                 .with_context(|| format!("sin asset de máscara '{mask_key}'"))?;
+            // un fallo de firma es sistémico (token/credenciales), no algo
+            // propio de esta escena: se propaga para abortar el batch igual
+            // que en el loop de bandas, en vez de omitir escena por escena
             let href = client.sign_asset_href(&asset.href, collection)?;
             let mut reader = CogReaderBlocking::open(&href, CogReaderOptions::default())?;
             if collection == "sentinel-2-l2a" {
@@ -354,25 +360,58 @@ pub fn run(
                 Ok(reader.read_bbox(&bbox, None)?)
             }
         })();
-        let mask_raster = match mask_result {
+        let mut mask_raster = match mask_result {
             Ok(m) => m,
             Err(e) => {
                 eprintln!("  {}: {e:#}, escena omitida", item.id);
+                failed_scenes += 1;
                 continue;
             }
         };
+        // la máscara debe compartir la grilla de las bandas: si estas se
+        // recortaron al shape mínimo común, recortarla también — si no, el
+        // par ms/mask sale con dimensiones distintas y revienta después en
+        // `extract`, sobre un archivo que `fetch` reportó como exitoso
+        if mask_raster.shape() != (min_rows, min_cols) {
+            let (mr, mc) = mask_raster.shape();
+            if mr < min_rows || mc < min_cols {
+                eprintln!(
+                    "  {}: máscara {mr}×{mc} menor que las bandas {min_rows}×{min_cols}, escena omitida",
+                    item.id
+                );
+                failed_scenes += 1;
+                continue;
+            }
+            let view = mask_raster
+                .data()
+                .slice(ndarray::s![..min_rows, ..min_cols])
+                .to_owned();
+            let mut nm: Raster<u16> = mask_raster.with_same_meta(min_rows, min_cols);
+            *nm.data_mut() = view;
+            mask_raster = nm;
+        }
 
-        // escribir el par ms/mask
+        // Escribir el par ms/mask de forma atómica: se escribe a `.tmp` y se
+        // renombra al final (rename es atómico en el mismo filesystem). Sin
+        // esto, un corte a mitad de la máscara dejaba ambos archivos en disco
+        // y la reanudación —que solo comprueba existencia— fijaba para
+        // siempre un par corrupto.
+        let ms_tmp = ms_path.with_extension("tif.tmp");
+        let mask_tmp = mask_path.with_extension("tif.tmp");
         let refs: Vec<&Raster<f32>> = bands.iter().collect();
         write_geotiff_stack(
             &refs,
             Some(&["blue", "green", "red", "nir", "swir1"]),
-            &ms_path,
+            &ms_tmp,
             &GeoTiffOptions::default(),
         )
-        .with_context(|| format!("escribiendo {}", ms_path.display()))?;
-        write_geotiff(&mask_raster, &mask_path, None)
-            .with_context(|| format!("escribiendo {}", mask_path.display()))?;
+        .with_context(|| format!("escribiendo {}", ms_tmp.display()))?;
+        write_geotiff(&mask_raster, &mask_tmp, None)
+            .with_context(|| format!("escribiendo {}", mask_tmp.display()))?;
+        std::fs::rename(&mask_tmp, &mask_path)
+            .with_context(|| format!("renombrando {}", mask_path.display()))?;
+        std::fs::rename(&ms_tmp, &ms_path)
+            .with_context(|| format!("renombrando {}", ms_path.display()))?;
         let (rows, cols) = bands[0].shape();
         eprintln!(
             "  {} -> {stem}_ms.tif ({rows}×{cols} px, EPSG:{epsg}, nubes {:.1}%)",
@@ -381,6 +420,26 @@ pub fn run(
         );
         written += 1;
     }
+
+    if failed_scenes > 0 {
+        eprintln!(
+            "aviso: {failed_scenes} escena(s) omitidas por error de lectura/máscara \
+             (reintentables: la reanudación las volverá a pedir)"
+        );
+    }
+    // Un batch donde TODO falló (token expirado, red caída, endpoint movido)
+    // terminaba con "0 escenas" y código de salida 0: un fetch nocturno
+    // "exitoso" que no trajo nada. Se distingue de un batch ya completo, en
+    // el que todas las escenas existían en disco.
+    if written == 0 && skipped_existing == 0 && failed_scenes > 0 {
+        anyhow::bail!(
+            "ninguna de las {} escenas pudo descargarse ({failed_scenes} fallidas)",
+            failed_scenes
+        );
+    }
+    eprintln!(
+        "{written} escenas nuevas, {skipped_existing} ya existían, {failed_scenes} fallidas"
+    );
     Ok(written)
 }
 

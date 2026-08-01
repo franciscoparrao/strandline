@@ -55,6 +55,11 @@ pub struct SlopeEstimate {
     /// genera `generate_transects`). Se elige el que minimiza la energía
     /// residual — la orientación del transecto no es un supuesto.
     pub tide_sign: f64,
+    /// `true` si el óptimo cayó en el primer o último candidato de la grilla
+    /// barrida, es decir el mínimo real está fuera del rango. Señal de marea
+    /// débil o de un transecto mal orientado: la estimación no es utilizable
+    /// como valor puntual aunque `slope` traiga un número plausible.
+    pub at_boundary: bool,
     /// Observaciones usadas.
     pub n: usize,
 }
@@ -103,10 +108,16 @@ pub fn lomb_scargle(t: &[f64], y: &[f64], freqs: &[f64]) -> Vec<f64> {
 /// Grilla de frecuencias para el análisis: desde `2/span` hasta la
 /// pseudo-Nyquist del muestreo mediano, con paso `1/(oversample·span)`.
 fn frequency_grid(t: &[f64], oversample: f64) -> Vec<f64> {
+    if t.len() < 2 {
+        return Vec::new();
+    }
     let span = t[t.len() - 1] - t[0];
     // dt mediano
     let mut dts: Vec<f64> = t.windows(2).map(|w| w[1] - w[0]).filter(|d| *d > 0.0).collect();
-    dts.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    if dts.is_empty() {
+        return Vec::new();
+    }
+    dts.sort_by(|a, b| a.total_cmp(b));
     let dt_med = dts[dts.len() / 2].max(1.0);
     let f_max = 0.5 / dt_med;
     let df = 1.0 / (oversample * span);
@@ -126,6 +137,14 @@ pub fn peak_tidal_frequency(t_days: &[f64], tide_m: &[f64]) -> Option<f64> {
     if freqs.is_empty() {
         return None;
     }
+    // marea constante (columna rellenada con 0.0 por dato faltante): no hay
+    // pico que encontrar y el argmax devolvería el primer bin, una frecuencia
+    // espuria de apariencia legítima
+    let mean_h = tide_m.iter().sum::<f64>() / tide_m.len() as f64;
+    let var_h = tide_m.iter().map(|v| (v - mean_h).powi(2)).sum::<f64>() / tide_m.len() as f64;
+    if var_h <= 0.0 || !var_h.is_finite() {
+        return None;
+    }
     let power = lomb_scargle(t_days, tide_m, &freqs);
     let (mut best_i, mut best_p) = (0usize, f64::NEG_INFINITY);
     for (i, &p) in power.iter().enumerate() {
@@ -134,7 +153,7 @@ pub fn peak_tidal_frequency(t_days: &[f64], tide_m: &[f64]) -> Option<f64> {
             best_i = i;
         }
     }
-    Some(freqs[best_i])
+    (best_p > 0.0).then(|| freqs[best_i])
 }
 
 /// Estima la pendiente de playa de un transecto minimizando la energía
@@ -149,22 +168,47 @@ pub fn estimate_beach_slope(
     tide_m: &[f64],
     settings: &SlopeSettings,
 ) -> Option<SlopeEstimate> {
-    assert_eq!(t_days.len(), chainage_m.len());
-    assert_eq!(t_days.len(), tide_m.len());
+    // largos incompatibles: `None` en vez de abortar el proceso a mitad de un
+    // batch de transectos (el resto de la función ya devuelve `Option`)
+    if t_days.len() != chainage_m.len() || t_days.len() != tide_m.len() {
+        return None;
+    }
+    if settings.candidates.is_empty() {
+        return None;
+    }
 
     // observaciones válidas
     let mut t = Vec::new();
     let mut x = Vec::new();
     let mut h = Vec::new();
     for i in 0..t_days.len() {
-        if chainage_m[i].is_finite() && tide_m[i].is_finite() {
+        if chainage_m[i].is_finite() && tide_m[i].is_finite() && t_days[i].is_finite() {
             t.push(t_days[i]);
             x.push(chainage_m[i]);
             h.push(tide_m[i]);
         }
     }
+    // el análisis espectral asume tiempo creciente: `frequency_grid` toma el
+    // dt mediano de los gaps positivos y `span` de los extremos. Con la serie
+    // desordenada (CSV de más reciente a más antiguo) la grilla sale corrupta
+    // —y sin ningún gap positivo, hace panic por índice.
+    let mut order: Vec<usize> = (0..t.len()).collect();
+    order.sort_by(|&a, &b| t[a].total_cmp(&t[b]));
+    let (t, x, h): (Vec<f64>, Vec<f64>, Vec<f64>) = order
+        .into_iter()
+        .map(|i| (t[i], x[i], h[i]))
+        .fold((vec![], vec![], vec![]), |mut acc, (ti, xi, hi)| {
+            acc.0.push(ti);
+            acc.1.push(xi);
+            acc.2.push(hi);
+            acc
+        });
     let n = t.len();
-    if n < settings.min_valid {
+    if n < settings.min_valid.max(2) {
+        return None;
+    }
+    // sin al menos un intervalo positivo no hay muestreo del que hablar
+    if !t.windows(2).any(|w| w[1] - w[0] > 0.0) {
         return None;
     }
 
@@ -213,11 +257,23 @@ pub fn estimate_beach_slope(
         }
     }
 
+    // un óptimo en el extremo de la grilla significa que el mínimo real cae
+    // fuera del rango barrido: es el síntoma clásico de señal mareal débil o
+    // de orientación mal detectada (hallazgo E5), y no debe confundirse con
+    // una estimación interior legítima
+    let at_boundary = settings
+        .candidates
+        .first()
+        .zip(settings.candidates.last())
+        .map(|(lo, hi)| best.1 == *lo || best.1 == *hi)
+        .unwrap_or(false);
+
     Some(SlopeEstimate {
         slope: best.1,
         peak_freq_cpd: peak,
         energy_ratio: best.0 / e_uncorrected,
         tide_sign: best.2,
+        at_boundary,
         n,
     })
 }
@@ -326,5 +382,41 @@ mod tests {
             "pico en {} cpd",
             freqs[imax]
         );
+    }
+
+    /// Entradas degeneradas que antes hacían panic por índice (serie sin
+    /// ningún gap positivo → `dts` vacío) o devolvían un resultado espurio
+    /// de apariencia legítima (marea constante).
+    #[test]
+    fn entradas_degeneradas_dan_none_sin_panic() {
+        let s = SlopeSettings::default();
+        // serie en orden descendente: antes reventaba en frequency_grid
+        let n = 60;
+        let t_desc: Vec<f64> = (0..n).map(|i| 60_000.0 - i as f64 * 16.0).collect();
+        let x: Vec<f64> = (0..n).map(|i| 100.0 + (i as f64 * 0.7).sin() * 5.0).collect();
+        let h: Vec<f64> = (0..n).map(|i| (i as f64 * 1.3).cos()).collect();
+        // no debe hacer panic; con la serie reordenada internamente puede
+        // devolver estimación o None, pero nunca abortar
+        let _ = estimate_beach_slope(&t_desc, &x, &h, &s);
+
+        // todos los instantes idénticos → sin muestreo del que hablar
+        let t_same = vec![60_000.0; n];
+        assert!(estimate_beach_slope(&t_same, &x, &h, &s).is_none());
+
+        // marea constante (columna rellenada con 0.0): antes devolvía
+        // Some(slope=primer candidato, ratio=1.0), plausible pero sin sentido
+        let t_ok: Vec<f64> = (0..n).map(|i| 60_000.0 + i as f64 * 16.0).collect();
+        let h_const = vec![0.0; n];
+        assert!(estimate_beach_slope(&t_ok, &x, &h_const, &s).is_none());
+
+        // largos incompatibles → None en vez de assert!/panic
+        assert!(estimate_beach_slope(&t_ok, &x[..n - 1], &h, &s).is_none());
+
+        // grilla de candidatos vacía → None en vez de índice fuera de rango
+        let empty = SlopeSettings {
+            candidates: vec![],
+            ..SlopeSettings::default()
+        };
+        assert!(estimate_beach_slope(&t_ok, &x, &h, &empty).is_none());
     }
 }

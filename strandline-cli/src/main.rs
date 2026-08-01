@@ -25,8 +25,86 @@ use strandline_core::{extract_shoreline, ExtractParams};
 #[derive(Parser)]
 #[command(name = "strandline", version, about = "Satellite-derived shoreline analysis engine")]
 struct Cli {
+    /// Trata como error cualquier fila de CSV descartada al leer (fecha no
+    /// parseable, campos faltantes, valor no numérico). Por defecto se
+    /// descartan pero SIEMPRE se reportan por stderr con su conteo.
+    #[arg(long, global = true)]
+    strict: bool,
     #[command(subcommand)]
     command: Command,
+}
+
+/// Contabilidad de filas descartadas al leer un CSV.
+///
+/// La política del motor es no perder observaciones en silencio: un CSV con
+/// parte de las fechas en otro formato produciría tasas calculadas sobre un
+/// subconjunto, reportadas como si fueran completas. Cada descarte se cuenta
+/// por causa y se informa al cerrar la lectura; con `--strict` aborta.
+#[derive(Debug)]
+struct CsvDiscards {
+    source: String,
+    /// causa → (conteo, primer valor ofensor)
+    by_cause: std::collections::BTreeMap<&'static str, (usize, String)>,
+    total_rows: usize,
+}
+
+impl CsvDiscards {
+    fn new(source: impl Into<String>) -> Self {
+        Self {
+            source: source.into(),
+            by_cause: std::collections::BTreeMap::new(),
+            total_rows: 0,
+        }
+    }
+
+    fn row(&mut self) {
+        self.total_rows += 1;
+    }
+
+    fn record(&mut self, cause: &'static str, offending: &str) {
+        let e = self
+            .by_cause
+            .entry(cause)
+            .or_insert_with(|| (0, offending.to_string()));
+        e.0 += 1;
+    }
+
+    fn dropped(&self) -> usize {
+        self.by_cause.values().map(|(n, _)| *n).sum()
+    }
+
+    /// Informa (o aborta con `strict`). Consume el acumulador para que no
+    /// pueda olvidarse una lectura sin reportar.
+    fn finish(self, strict: bool) -> anyhow::Result<()> {
+        let dropped = self.dropped();
+        if dropped == 0 {
+            return Ok(());
+        }
+        let detail = self
+            .by_cause
+            .iter()
+            .map(|(cause, (n, first))| format!("{cause}: {n} (primera: '{first}')"))
+            .collect::<Vec<_>>()
+            .join("; ");
+        let msg = format!(
+            "{}: se descartaron {dropped} de {} filas — {detail}",
+            self.source, self.total_rows
+        );
+        if strict {
+            anyhow::bail!("{msg} (--strict)");
+        }
+        eprintln!("aviso: {msg}");
+        Ok(())
+    }
+}
+
+/// Cabecera de CSV: separa por comas, recorta espacios y descarta el BOM
+/// UTF-8 que Excel antepone (haría que la primera columna nunca matchee).
+fn csv_header(line: &str) -> Vec<String> {
+    line.trim_start_matches('\u{feff}')
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .collect()
 }
 
 #[derive(Subcommand)]
@@ -443,28 +521,31 @@ fn parse_mask_kind(s: &str) -> anyhow::Result<MaskKind> {
 /// Lee un CSV `shoreline_id, correction_m` a un mapa.
 fn read_tide_correction(
     path: &PathBuf,
+    strict: bool,
 ) -> anyhow::Result<std::collections::HashMap<String, f64>> {
     let text = std::fs::read_to_string(path)
         .with_context(|| format!("leyendo corrección mareal {}", path.display()))?;
     let mut lines = text.lines().filter(|l| !l.trim().is_empty());
-    let header: Vec<String> = lines
-        .next()
-        .unwrap_or_default()
-        .split(',')
-        .map(|s| s.trim().to_string())
-        .collect();
+    let header = csv_header(lines.next().unwrap_or_default());
     let idi = header.iter().position(|c| c == "shoreline_id").context("falta 'shoreline_id'")?;
     let ci = header.iter().position(|c| c == "correction_m").context("falta 'correction_m'")?;
+    let mut d = CsvDiscards::new(path.display().to_string());
     let mut map = std::collections::HashMap::new();
     for l in lines {
+        d.row();
         let f: Vec<&str> = l.split(',').map(str::trim).collect();
         if f.len() <= idi.max(ci) {
+            d.record("campos faltantes", l);
             continue;
         }
-        if let Ok(v) = f[ci].parse::<f64>() {
-            map.insert(f[idi].to_string(), v);
+        match f[ci].parse::<f64>() {
+            Ok(v) if v.is_finite() => {
+                map.insert(f[idi].to_string(), v);
+            }
+            _ => d.record("corrección no numérica", f[ci]),
         }
     }
+    d.finish(strict)?;
     Ok(map)
 }
 
@@ -473,31 +554,32 @@ fn read_tide_correction(
 /// --satellite-weights` (lookup del satélite de cada observación).
 fn read_date_satnames(
     path: &PathBuf,
+    strict: bool,
 ) -> anyhow::Result<std::collections::HashMap<String, (f64, String)>> {
     let text = std::fs::read_to_string(path)
         .with_context(|| format!("leyendo fechas/satélite {}", path.display()))?;
     let mut lines = text.lines().filter(|l| !l.trim().is_empty());
-    let header: Vec<String> = lines
-        .next()
-        .unwrap_or_default()
-        .split(',')
-        .map(|s| s.trim().to_string())
-        .collect();
+    let header = csv_header(lines.next().unwrap_or_default());
     let idi = header.iter().position(|c| c == "shoreline_id").context("falta 'shoreline_id'")?;
     let di = header.iter().position(|c| c == "date").context("falta 'date'")?;
     let si = header.iter().position(|c| c == "satname").context("falta 'satname'")?;
 
+    let mut d = CsvDiscards::new(path.display().to_string());
     let mut map = std::collections::HashMap::new();
     for l in lines {
+        d.row();
         let f: Vec<&str> = l.split(',').map(str::trim).collect();
         if f.len() <= idi.max(di).max(si) {
+            d.record("campos faltantes", l);
             continue;
         }
         let Some(mjd) = tide::parse_timestamp(f[di]) else {
+            d.record("fecha no parseable", f[di]);
             continue;
         };
         map.insert(f[idi].to_string(), (decimal_year_from_mjd(mjd), f[si].to_string()));
     }
+    d.finish(strict)?;
     Ok(map)
 }
 
@@ -505,28 +587,32 @@ fn read_date_satnames(
 /// típicamente la salida de `satellite-weights`.
 fn read_satellite_weight_table(
     path: &PathBuf,
+    strict: bool,
 ) -> anyhow::Result<std::collections::HashMap<String, f64>> {
     let text = std::fs::read_to_string(path)
         .with_context(|| format!("leyendo tabla de pesos por satélite {}", path.display()))?;
     let mut lines = text.lines().filter(|l| !l.trim().is_empty());
-    let header: Vec<String> = lines
-        .next()
-        .unwrap_or_default()
-        .split(',')
-        .map(|s| s.trim().to_string())
-        .collect();
+    let header = csv_header(lines.next().unwrap_or_default());
     let si = header.iter().position(|c| c == "satname").context("falta 'satname'")?;
     let wi = header.iter().position(|c| c == "weight").context("falta 'weight'")?;
+    let mut d = CsvDiscards::new(path.display().to_string());
     let mut map = std::collections::HashMap::new();
     for l in lines {
+        d.row();
         let f: Vec<&str> = l.split(',').map(str::trim).collect();
         if f.len() <= si.max(wi) {
+            d.record("campos faltantes", l);
             continue;
         }
-        if let Ok(w) = f[wi].parse::<f64>() {
-            map.insert(f[si].to_string(), w);
+        // un peso 0/negativo/no finito rompe la regresión ponderada
+        match f[wi].parse::<f64>() {
+            Ok(w) if w.is_finite() && w > 0.0 => {
+                map.insert(f[si].to_string(), w);
+            }
+            _ => d.record("peso inválido (debe ser finito y > 0)", f[wi]),
         }
     }
+    d.finish(strict)?;
     Ok(map)
 }
 
@@ -534,56 +620,109 @@ fn read_satellite_weight_table(
 type DateWeights = std::collections::HashMap<String, (f64, f64)>;
 
 /// Lee `shoreline_id, date[, weight]` y devuelve año decimal + peso por id.
-fn read_date_weights(path: &PathBuf) -> anyhow::Result<DateWeights> {
+fn read_date_weights(path: &PathBuf, strict: bool) -> anyhow::Result<DateWeights> {
     let text = std::fs::read_to_string(path)
         .with_context(|| format!("leyendo fechas {}", path.display()))?;
     let mut lines = text.lines().filter(|l| !l.trim().is_empty());
-    let header: Vec<String> = lines
-        .next()
-        .unwrap_or_default()
-        .split(',')
-        .map(|s| s.trim().to_string())
-        .collect();
+    let header = csv_header(lines.next().unwrap_or_default());
     let idi = header.iter().position(|c| c == "shoreline_id").context("falta 'shoreline_id'")?;
     let di = header.iter().position(|c| c == "date").context("falta 'date'")?;
     let wi = header.iter().position(|c| c == "weight");
 
+    let mut d = CsvDiscards::new(path.display().to_string());
     let mut map = DateWeights::new();
     for l in lines {
+        d.row();
         let f: Vec<&str> = l.split(',').map(str::trim).collect();
         if f.len() <= idi.max(di) {
+            d.record("campos faltantes", l);
             continue;
         }
         let Some(mjd) = tide::parse_timestamp(f[di]) else {
+            d.record("fecha no parseable", f[di]);
             continue;
         };
-        let weight = wi
-            .and_then(|i| f.get(i))
-            .and_then(|s| s.parse::<f64>().ok())
-            .unwrap_or(1.0);
+        // columna ausente → peso 1.0 legítimo; columna presente pero
+        // ilegible/no positiva → se reporta, no se asume 1.0 en silencio
+        let weight = match wi.and_then(|i| f.get(i)) {
+            None => 1.0,
+            Some(s) => match s.parse::<f64>() {
+                Ok(w) if w.is_finite() && w > 0.0 => w,
+                _ => {
+                    d.record("peso inválido (se usa 1.0)", s);
+                    1.0
+                }
+            },
+        };
         map.insert(f[idi].to_string(), (decimal_year_from_mjd(mjd), weight));
     }
+    d.finish(strict)?;
     Ok(map)
 }
 
-/// Lee transectos desde el CSV que escribe `write_transects_csv`.
-fn read_transects_csv(path: &PathBuf) -> anyhow::Result<Vec<Transect>> {
+/// Lee transectos desde el CSV que escribe `write_transects_csv`, devolviendo
+/// también el nombre de cada uno.
+///
+/// Las columnas se resuelven **por nombre** como en el resto de los readers:
+/// con acceso posicional, un CSV con columnas reordenadas producía transectos
+/// con coordenadas intercambiadas. Y se preserva `name` porque los
+/// consumidores renumeran `T001…` por posición: sobre un CSV editado (una
+/// fila borrada) eso corre todos los nombres siguientes y atribuye las tasas
+/// al transecto equivocado.
+fn read_transects_csv(
+    path: &PathBuf,
+    strict: bool,
+) -> anyhow::Result<(Vec<Transect>, Vec<String>)> {
     let text = std::fs::read_to_string(path)
         .with_context(|| format!("leyendo transectos {}", path.display()))?;
-    let mut lines = text.lines().filter(|l| !l.trim().is_empty());
-    lines.next(); // header conocido: name,origin_e,origin_n,end_e,end_n
+    let mut lines = text
+        .lines()
+        .enumerate()
+        .filter(|(_, l)| !l.trim().is_empty());
+    let header = csv_header(lines.next().map(|(_, l)| l).unwrap_or_default());
+    let col = |name: &str| {
+        header
+            .iter()
+            .position(|c| c == name)
+            .with_context(|| format!("falta columna '{name}' en {}", path.display()))
+    };
+    let (ni, oe, on, ee, en) = (
+        col("name")?,
+        col("origin_e")?,
+        col("origin_n")?,
+        col("end_e")?,
+        col("end_n")?,
+    );
+    let need = ni.max(oe).max(on).max(ee).max(en);
+
+    let mut d = CsvDiscards::new(path.display().to_string());
     let mut out = Vec::new();
-    for l in lines {
+    let mut names = Vec::new();
+    for (lineno, l) in lines {
+        d.row();
         let f: Vec<&str> = l.split(',').map(str::trim).collect();
-        if f.len() < 5 {
+        if f.len() <= need {
+            d.record("campos faltantes", l);
             continue;
         }
+        let num = |i: usize| -> anyhow::Result<f64> {
+            f[i].parse::<f64>().with_context(|| {
+                format!(
+                    "valor no numérico en {} línea {}: '{}'",
+                    path.display(),
+                    lineno + 1,
+                    f[i]
+                )
+            })
+        };
         out.push(Transect {
-            origin: (f[1].parse()?, f[2].parse()?),
-            end: (f[3].parse()?, f[4].parse()?),
+            origin: (num(oe)?, num(on)?),
+            end: (num(ee)?, num(en)?),
         });
+        names.push(f[ni].to_string());
     }
-    Ok(out)
+    d.finish(strict)?;
+    Ok((out, names))
 }
 
 /// Shorelines leídas: los ids (en orden de aparición) y los puntos de cada
@@ -592,38 +731,57 @@ type Shorelines = (Vec<String>, Vec<Vec<(f64, f64)>>);
 
 /// Lee shorelines agrupadas por `shoreline_id` (preserva el orden de
 /// aparición de los ids y de los puntos dentro de cada uno).
-fn read_shorelines_csv(path: &PathBuf) -> anyhow::Result<Shorelines> {
+fn read_shorelines_csv(path: &PathBuf, strict: bool) -> anyhow::Result<Shorelines> {
     let text = std::fs::read_to_string(path)
         .with_context(|| format!("leyendo shorelines {}", path.display()))?;
     let mut lines = text.lines().filter(|l| !l.trim().is_empty());
-    let header: Vec<String> = lines
-        .next()
-        .unwrap_or_default()
-        .split(',')
-        .map(|s| s.trim().to_string())
-        .collect();
+    let header = csv_header(lines.next().unwrap_or_default());
     let idi = header.iter().position(|c| c == "shoreline_id").context("falta 'shoreline_id'")?;
     let ei = header.iter().position(|c| c == "easting").context("falta 'easting'")?;
     let ni = header.iter().position(|c| c == "northing").context("falta 'northing'")?;
 
+    let mut d = CsvDiscards::new(path.display().to_string());
     let mut ids: Vec<String> = Vec::new();
     let mut groups: Vec<Vec<(f64, f64)>> = Vec::new();
     let mut last_id: Option<String> = None;
+    // los fragmentos se agrupan por corridas CONTIGUAS del mismo id: si el
+    // CSV se reordena (Excel, `sort`), un id que reaparece tras haberse
+    // cerrado indicaría fusión de fragmentos distantes con segmentos
+    // fantasma que generan intersecciones espurias — se avisa
+    let mut seen_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut reopened = 0usize;
     for l in lines {
+        d.row();
         let f: Vec<&str> = l.split(',').map(str::trim).collect();
         if f.len() <= idi.max(ei).max(ni) {
+            d.record("campos faltantes", l);
             continue;
         }
         let id = f[idi].to_string();
         if last_id.as_ref() != Some(&id) {
+            if !seen_ids.insert(id.clone()) {
+                reopened += 1;
+            }
             ids.push(id.clone());
             groups.push(Vec::new());
             last_id = Some(id);
         }
-        if let (Ok(e), Ok(n)) = (f[ei].parse::<f64>(), f[ni].parse::<f64>()) {
-            groups.last_mut().unwrap().push((e, n));
+        match (f[ei].parse::<f64>(), f[ni].parse::<f64>()) {
+            (Ok(e), Ok(n)) if e.is_finite() && n.is_finite() => {
+                groups.last_mut().unwrap().push((e, n));
+            }
+            _ => d.record("coordenada no numérica", l),
         }
     }
+    if reopened > 0 {
+        eprintln!(
+            "aviso: {} shoreline_id reaparecen tras cerrarse en {} — el CSV parece reordenado; \
+             los fragmentos de una misma escena deben ir contiguos o se cruzarán segmentos inexistentes",
+            reopened,
+            path.display()
+        );
+    }
+    d.finish(strict)?;
     Ok((ids, groups))
 }
 
@@ -796,7 +954,7 @@ fn main() -> anyhow::Result<()> {
             };
             let scene = prepare_scene(&ms, mask.as_deref(), &params)
                 .with_context(|| format!("preparando escena {}", ms.display()))?;
-            let ts = read_transects_csv(&transects)?;
+            let (ts, ts_names) = read_transects_csv(&transects, cli.strict)?;
             anyhow::ensure!(!ts.is_empty(), "no hay transectos");
 
             // Semilla por transecto: el cruce del contorno Otsu/clasificador
@@ -842,7 +1000,10 @@ fn main() -> anyhow::Result<()> {
                     .sqrt();
                     out.push_str(&format!(
                         "{},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.6},{}\n",
-                        transect_name(i),
+                        ts_names
+                            .get(i)
+                            .cloned()
+                            .unwrap_or_else(|| transect_name(i)),
                         f.chainage_m,
                         f.world.0,
                         f.world.1,
@@ -900,22 +1061,47 @@ fn main() -> anyhow::Result<()> {
             let ci = header.iter().position(|c| c == &date_col).ok_or_else(|| {
                 anyhow::anyhow!("falta columna '{date_col}' en {}", dates.display())
             })?;
-            let mjds: Vec<f64> = lines
-                .filter_map(|l| l.split(',').nth(ci).map(str::trim).and_then(tide::parse_timestamp))
-                .collect();
+            // se conserva el timestamp original junto al MJD: si alguna fila
+            // se descarta, un join posicional contra el CSV de entrada
+            // quedaría corrido en silencio
+            let mut stamps: Vec<String> = Vec::new();
+            let mut mjds: Vec<f64> = Vec::new();
+            let mut dropped = 0usize;
+            let mut first_bad: Option<String> = None;
+            for l in lines {
+                let raw = l.split(',').nth(ci).map(str::trim).unwrap_or("");
+                match tide::parse_timestamp(raw) {
+                    Some(m) => {
+                        stamps.push(raw.to_string());
+                        mjds.push(m);
+                    }
+                    None => {
+                        dropped += 1;
+                        first_bad.get_or_insert_with(|| raw.to_string());
+                    }
+                }
+            }
+            if dropped > 0 {
+                eprintln!(
+                    "aviso: {dropped} fila(s) descartadas por timestamp no parseable en {} (primera: '{}')",
+                    dates.display(),
+                    first_bad.as_deref().unwrap_or("")
+                );
+            }
             anyhow::ensure!(!mjds.is_empty(), "no se parseó ninguna fecha");
 
             let tides = predictor.predict_many(&mjds);
             let correction = beach_slope
-                .map(|slope| TideCorrection::new(slope, reference_elevation));
+                .map(|slope| TideCorrection::new(slope, reference_elevation))
+                .transpose()?;
 
-            let mut out = String::from("mjd,tide_m");
+            let mut out = String::from("timestamp,mjd,tide_m");
             if correction.is_some() {
                 out.push_str(",correction_m");
             }
             out.push('\n');
-            for (mjd, tide_level) in mjds.iter().zip(&tides) {
-                out.push_str(&format!("{mjd:.6},{tide_level:.4}"));
+            for ((stamp, mjd), tide_level) in stamps.iter().zip(&mjds).zip(&tides) {
+                out.push_str(&format!("{stamp},{mjd:.6},{tide_level:.4}"));
                 if let Some(c) = &correction {
                     out.push_str(&format!(",{:.4}", c.horizontal_shift(*tide_level)));
                 }
@@ -1063,8 +1249,8 @@ fn main() -> anyhow::Result<()> {
             along_dist,
             output,
         } => {
-            let ts = read_transects_csv(&transects)?;
-            let (sl_ids, sls) = read_shorelines_csv(&shorelines)?;
+            let (ts, ts_names) = read_transects_csv(&transects, cli.strict)?;
+            let (sl_ids, sls) = read_shorelines_csv(&shorelines, cli.strict)?;
             anyhow::ensure!(!ts.is_empty(), "no hay transectos");
             anyhow::ensure!(!sls.is_empty(), "no hay shorelines");
 
@@ -1079,7 +1265,12 @@ fn main() -> anyhow::Result<()> {
             let mut out = String::from("transect,shoreline_id,chainage_m\n");
             let mut n_valid = 0usize;
             for (ti, per_shore) in cross.iter().enumerate() {
-                let tname = transect_name(ti);
+                // se usa el nombre que trae el CSV de transectos; renumerar
+                // por posición corre las etiquetas si el CSV fue editado
+                let tname = ts_names
+                    .get(ti)
+                    .cloned()
+                    .unwrap_or_else(|| transect_name(ti));
                 for (si, &ch) in per_shore.iter().enumerate() {
                     if ch.is_finite() {
                         n_valid += 1;
@@ -1108,28 +1299,31 @@ fn main() -> anyhow::Result<()> {
             output,
         } => {
             // fechas (MJD) por shoreline
-            let date_w = read_date_weights(&dates)?;
+            let date_w = read_date_weights(&dates, cli.strict)?;
             // marea por shoreline (reusa el lector de corrección: col tide_m)
             let text = std::fs::read_to_string(&tides)
                 .with_context(|| format!("leyendo mareas {}", tides.display()))?;
             let mut lines = text.lines().filter(|l| !l.trim().is_empty());
-            let header: Vec<String> = lines
-                .next()
-                .unwrap_or_default()
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .collect();
+            let header = csv_header(lines.next().unwrap_or_default());
             let idi = header.iter().position(|c| c == "shoreline_id").context("falta 'shoreline_id'")?;
             let ti = header.iter().position(|c| c == "tide_m").context("falta 'tide_m'")?;
+            let mut dt = CsvDiscards::new(tides.display().to_string());
             let mut tide_by_id = std::collections::HashMap::new();
             for l in lines {
+                dt.row();
                 let f: Vec<&str> = l.split(',').map(str::trim).collect();
-                if f.len() > idi.max(ti) {
-                    if let Ok(v) = f[ti].parse::<f64>() {
+                if f.len() <= idi.max(ti) {
+                    dt.record("campos faltantes", l);
+                    continue;
+                }
+                match f[ti].parse::<f64>() {
+                    Ok(v) if v.is_finite() => {
                         tide_by_id.insert(f[idi].to_string(), v);
                     }
+                    _ => dt.record("marea no numérica", f[ti]),
                 }
             }
+            dt.finish(cli.strict)?;
 
             // NOTA: read_date_weights devuelve años decimales; para el
             // análisis espectral se necesitan DÍAS → año·365.2425 sirve
@@ -1140,14 +1334,24 @@ fn main() -> anyhow::Result<()> {
             lines.next();
             let mut by_transect: std::collections::BTreeMap<String, Vec<(f64, f64, f64)>> =
                 std::collections::BTreeMap::new();
+            let mut d = CsvDiscards::new(intersections.display().to_string());
             for l in lines {
+                d.row();
                 let f: Vec<&str> = l.split(',').map(str::trim).collect();
                 if f.len() < 3 {
+                    d.record("campos faltantes", l);
                     continue;
                 }
-                let (Some(&(t_year, _)), Some(&tide), Ok(ch)) =
-                    (date_w.get(f[1]), tide_by_id.get(f[1]), f[2].parse::<f64>())
-                else {
+                let Some(&(t_year, _)) = date_w.get(f[1]) else {
+                    d.record("shoreline_id sin fecha en --dates", f[1]);
+                    continue;
+                };
+                let Some(&tide) = tide_by_id.get(f[1]) else {
+                    d.record("shoreline_id sin marea en --tides", f[1]);
+                    continue;
+                };
+                let Ok(ch) = f[2].parse::<f64>() else {
+                    d.record("chainage no numérico", f[2]);
                     continue;
                 };
                 by_transect
@@ -1155,13 +1359,16 @@ fn main() -> anyhow::Result<()> {
                     .or_default()
                     .push((t_year * 365.2425, ch, tide));
             }
+            d.finish(cli.strict)?;
 
             let settings = SlopeSettings {
                 min_valid,
                 ..Default::default()
             };
-            let mut out = String::from("transect,slope,peak_freq_cpd,energy_ratio,tide_sign,n\n");
+            let mut out =
+                String::from("transect,slope,peak_freq_cpd,energy_ratio,tide_sign,at_boundary,n\n");
             let mut n_ok = 0usize;
+            let mut n_boundary = 0usize;
             let mut slopes = Vec::new();
             for (tname, mut obs) in by_transect {
                 obs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
@@ -1173,10 +1380,23 @@ fn main() -> anyhow::Result<()> {
                 }
                 if let Some(est) = estimate_beach_slope(&t, &x, &h, &settings) {
                     n_ok += 1;
-                    slopes.push(est.slope);
+                    // los óptimos en el borde de la grilla no son estimaciones
+                    // utilizables: se escriben marcados, pero no entran a la
+                    // mediana que resume el sitio
+                    if !est.at_boundary {
+                        slopes.push(est.slope);
+                    } else {
+                        n_boundary += 1;
+                    }
                     out.push_str(&format!(
-                        "{},{:.4},{:.6},{:.4},{:+.0},{}\n",
-                        tname, est.slope, est.peak_freq_cpd, est.energy_ratio, est.tide_sign, est.n
+                        "{},{:.4},{:.6},{:.4},{:+.0},{},{}\n",
+                        tname,
+                        est.slope,
+                        est.peak_freq_cpd,
+                        est.energy_ratio,
+                        est.tide_sign,
+                        est.at_boundary,
+                        est.n
                     ));
                 }
             }
@@ -1185,11 +1405,19 @@ fn main() -> anyhow::Result<()> {
             slopes.sort_by(|a, b| a.partial_cmp(b).unwrap());
             let med = slopes.get(slopes.len() / 2).copied().unwrap_or(f64::NAN);
             eprintln!(
-                "{} transectos con slope estimado (mediana tan(β) = {:.3}) -> {}",
+                "{} transectos con slope estimado (mediana tan(β) = {:.3} sobre {} interiores) -> {}",
                 n_ok,
                 med,
+                slopes.len(),
                 output.display()
             );
+            if n_boundary > 0 {
+                eprintln!(
+                    "aviso: {n_boundary} transectos con el óptimo en el borde de la grilla \
+                     (marcados at_boundary=true): señal mareal débil o transecto mal orientado, \
+                     excluidos de la mediana"
+                );
+            }
         }
         Command::Rates {
             intersections,
@@ -1207,7 +1435,7 @@ fn main() -> anyhow::Result<()> {
             min_r2,
             output,
         } => {
-            let date_w = read_date_weights(&dates)?;
+            let date_w = read_date_weights(&dates, cli.strict)?;
             let criteria = QcCriteria {
                 max_abs_lrr,
                 max_sce,
@@ -1216,7 +1444,7 @@ fn main() -> anyhow::Result<()> {
                 min_r2,
             };
             let tide_corr = match &tide_correction {
-                Some(p) => read_tide_correction(p)?,
+                Some(p) => read_tide_correction(p, cli.strict)?,
                 None => std::collections::HashMap::new(),
             };
             // pesos reales por satélite (hallazgo E1): reemplazan la
@@ -1224,7 +1452,7 @@ fn main() -> anyhow::Result<()> {
             // observación está en la tabla; si no, cae al peso de `dates`
             // (o 1.0 por default) sin romper el flujo existente.
             let (sat_by_shoreline, sat_weight_table) = match &satellite_weights {
-                Some(p) => (read_date_satnames(&dates)?, read_satellite_weight_table(p)?),
+                Some(p) => (read_date_satnames(&dates, cli.strict)?, read_satellite_weight_table(p, cli.strict)?),
                 None => (std::collections::HashMap::new(), std::collections::HashMap::new()),
             };
             // agrupar chainages por transecto, preservando (t_year, chainage, weight)
@@ -1234,14 +1462,21 @@ fn main() -> anyhow::Result<()> {
             lines.next(); // header: transect,shoreline_id,chainage_m
             let mut by_transect: std::collections::BTreeMap<String, Vec<(f64, f64, f64)>> =
                 std::collections::BTreeMap::new();
+            let mut d = CsvDiscards::new(intersections.display().to_string());
+            let mut uncorrected = 0usize;
             for l in lines {
+                d.row();
                 let f: Vec<&str> = l.split(',').map(str::trim).collect();
                 if f.len() < 3 {
+                    d.record("campos faltantes", l);
                     continue;
                 }
-                let (Some(&(t_year, weight)), Ok(chainage)) =
-                    (date_w.get(f[1]), f[2].parse::<f64>())
-                else {
+                let Some(&(t_year, weight)) = date_w.get(f[1]) else {
+                    d.record("shoreline_id sin fecha en --dates", f[1]);
+                    continue;
+                };
+                let Ok(chainage) = f[2].parse::<f64>() else {
+                    d.record("chainage no numérico", f[2]);
                     continue;
                 };
                 let weight = sat_by_shoreline
@@ -1249,13 +1484,37 @@ fn main() -> anyhow::Result<()> {
                     .and_then(|(_, sat)| sat_weight_table.get(sat))
                     .copied()
                     .unwrap_or(weight);
-                // corrección mareal: corrected = raw − correction (Vos et al.)
-                let corrected = chainage - tide_corr.get(f[1]).copied().unwrap_or(0.0);
+                // corrección mareal: corrected = raw − correction (Vos et al.).
+                // Una observación sin entrada en la tabla entraría SIN corregir
+                // a la misma serie que las corregidas: en un sitio macro-tidal
+                // eso son metros de sesgo indistinguibles del cambio real.
+                let corrected = if tide_correction.is_some() {
+                    match tide_corr.get(f[1]) {
+                        Some(c) => chainage - c,
+                        None => {
+                            uncorrected += 1;
+                            continue;
+                        }
+                    }
+                } else {
+                    chainage
+                };
                 by_transect
                     .entry(f[0].to_string())
                     .or_default()
                     .push((t_year, corrected, weight));
             }
+            if uncorrected > 0 {
+                let msg = format!(
+                    "{uncorrected} observaciones sin entrada en la tabla de corrección mareal: se excluyeron \
+                     (mezclarlas sin corregir sesga la serie)"
+                );
+                if cli.strict {
+                    anyhow::bail!("{msg} (--strict)");
+                }
+                eprintln!("aviso: {msg}");
+            }
+            d.finish(cli.strict)?;
 
             let mut out = String::from(
                 "transect,n_valid,years,NSM_m,SCE_m,EPR_m_yr,LRR_m_yr,LRR_r2,LRR_ci95,WLR_m_yr,WLR_ci95",
@@ -1323,25 +1582,32 @@ fn main() -> anyhow::Result<()> {
             min_span_years,
             output,
         } => {
-            let date_w = read_date_weights(&dates)?;
+            let date_w = read_date_weights(&dates, cli.strict)?;
             let text = std::fs::read_to_string(&intersections)
                 .with_context(|| format!("leyendo intersecciones {}", intersections.display()))?;
             let mut lines = text.lines().filter(|l| !l.trim().is_empty());
             lines.next(); // header: transect,shoreline_id,chainage_m
             let mut by_transect: std::collections::BTreeMap<String, Vec<(f64, f64)>> =
                 std::collections::BTreeMap::new();
+            let mut d = CsvDiscards::new(intersections.display().to_string());
             for l in lines {
+                d.row();
                 let f: Vec<&str> = l.split(',').map(str::trim).collect();
                 if f.len() < 3 {
+                    d.record("campos faltantes", l);
                     continue;
                 }
-                let (Some(&(t_year, _weight)), Ok(chainage)) =
-                    (date_w.get(f[1]), f[2].parse::<f64>())
-                else {
+                let Some(&(t_year, _weight)) = date_w.get(f[1]) else {
+                    d.record("shoreline_id sin fecha en --dates", f[1]);
+                    continue;
+                };
+                let Ok(chainage) = f[2].parse::<f64>() else {
+                    d.record("chainage no numérico", f[2]);
                     continue;
                 };
                 by_transect.entry(f[0].to_string()).or_default().push((t_year, chainage));
             }
+            d.finish(cli.strict)?;
 
             let mut out =
                 String::from("transect,month,trend_m,seasonal_m,residual_m,interpolated\n");
@@ -1387,28 +1653,42 @@ fn main() -> anyhow::Result<()> {
             min_valid,
             output,
         } => {
-            let date_sat = read_date_satnames(&dates)?;
+            let date_sat = read_date_satnames(&dates, cli.strict)?;
             let text = std::fs::read_to_string(&intersections)
                 .with_context(|| format!("leyendo intersecciones {}", intersections.display()))?;
             let mut lines = text.lines().filter(|l| !l.trim().is_empty());
             lines.next(); // header: transect,shoreline_id,chainage_m
             let mut by_transect: std::collections::HashMap<String, Vec<(f64, f64, String)>> =
                 std::collections::HashMap::new();
+            let mut d = CsvDiscards::new(intersections.display().to_string());
             for l in lines {
+                d.row();
                 let f: Vec<&str> = l.split(',').map(str::trim).collect();
                 if f.len() < 3 {
+                    d.record("campos faltantes", l);
                     continue;
                 }
-                let (Some((t_year, sat)), Ok(chainage)) =
-                    (date_sat.get(f[1]), f[2].parse::<f64>())
-                else {
+                let Some((t_year, sat)) = date_sat.get(f[1]) else {
+                    d.record("shoreline_id sin fecha/satélite en --dates", f[1]);
                     continue;
                 };
+                let Ok(chainage) = f[2].parse::<f64>() else {
+                    d.record("chainage no numérico", f[2]);
+                    continue;
+                };
+                // el CSV de `intersect` marca con NaN lo que rechaza el QC;
+                // `calibrate` las filtra, pero se contabilizan para que el
+                // usuario sepa sobre cuántas observaciones se calibró
+                if !chainage.is_finite() {
+                    d.record("chainage no finito (QC)", f[2]);
+                    continue;
+                }
                 by_transect
                     .entry(f[0].to_string())
                     .or_default()
                     .push((*t_year, chainage, sat.clone()));
             }
+            d.finish(cli.strict)?;
 
             let weights = strandline_core::calibrate_satellite_weights(&by_transect, min_valid);
             anyhow::ensure!(

@@ -18,7 +18,7 @@
 //! fecha de corte ignora una diferencia real y medible de precisión entre
 //! sensores.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 /// Peso calibrado de un satélite.
 #[derive(Debug, Clone)]
@@ -65,27 +65,46 @@ fn ols(t: &[f64], y: &[f64]) -> Option<(f64, f64)> {
 /// satname)`, sin ordenar (se ordena internamente si hace falta — la OLS
 /// no requiere orden temporal).
 ///
-/// `min_valid_per_transect`: mínimo de observaciones para intentar el
-/// detrend de un transecto; los que tienen menos se ignoran (no aportan
-/// residuos calibrables, pero no invalidan el resto).
+/// `min_valid_per_transect`: mínimo de observaciones **finitas** para
+/// intentar el detrend de un transecto; los que tienen menos se ignoran (no
+/// aportan residuos calibrables, pero no invalidan el resto).
+///
+/// Las observaciones con `t` o `chainage` no finitos se descartan antes del
+/// detrend: el CSV de `intersect` marca con `NaN` las intersecciones que el
+/// QC rechaza, así que llegan por diseño. Sin este filtro un solo `NaN`
+/// vuelve `NaN` la pendiente OLS del transecto y, por el pool compartido, la
+/// varianza de **todos** los satélites presentes en él — que entonces
+/// desaparecen de la salida en silencio.
 ///
 /// Devuelve un `SatelliteWeight` por cada satélite con al menos 2
-/// residuos pooled y varianza positiva, ordenados por nombre.
+/// residuos pooled y varianza positiva, ordenados por nombre. El resultado
+/// es determinista: los transectos se recorren en orden de clave, de modo
+/// que el orden de acumulación de los residuos (y por tanto los últimos
+/// bits de las sumas flotantes) no depende del orden de iteración del
+/// `HashMap`.
 pub fn calibrate(
     by_transect: &HashMap<String, Vec<(f64, f64, String)>>,
     min_valid_per_transect: usize,
 ) -> Vec<SatelliteWeight> {
-    let mut residuals_by_sat: HashMap<String, Vec<f64>> = HashMap::new();
-    for obs in by_transect.values() {
-        if obs.len() < min_valid_per_transect {
+    let mut residuals_by_sat: BTreeMap<String, Vec<f64>> = BTreeMap::new();
+    let mut names: Vec<&String> = by_transect.keys().collect();
+    names.sort_unstable();
+    for name in names {
+        let obs = &by_transect[name];
+        // solo observaciones utilizables: el detrend no tolera NaN/inf
+        let usable: Vec<&(f64, f64, String)> = obs
+            .iter()
+            .filter(|o| o.0.is_finite() && o.1.is_finite())
+            .collect();
+        if usable.len() < min_valid_per_transect {
             continue;
         }
-        let t: Vec<f64> = obs.iter().map(|o| o.0).collect();
-        let y: Vec<f64> = obs.iter().map(|o| o.1).collect();
+        let t: Vec<f64> = usable.iter().map(|o| o.0).collect();
+        let y: Vec<f64> = usable.iter().map(|o| o.1).collect();
         let Some((slope, intercept)) = ols(&t, &y) else {
             continue;
         };
-        for (i, o) in obs.iter().enumerate() {
+        for (i, o) in usable.iter().enumerate() {
             let resid = y[i] - (slope * t[i] + intercept);
             residuals_by_sat.entry(o.2.clone()).or_default().push(resid);
         }
@@ -201,5 +220,76 @@ mod tests {
     fn sin_transectos_da_vacio() {
         let by_transect = HashMap::new();
         assert!(calibrate(&by_transect, 10).is_empty());
+    }
+
+    /// El CSV de `intersect` marca con NaN las intersecciones que rechaza el
+    /// QC, así que llegan por diseño. Antes del filtro de finitud un solo NaN
+    /// volvía NaN la pendiente OLS del transecto y, vía el pool compartido,
+    /// borraba de la salida a todos los satélites presentes en él.
+    #[test]
+    fn nan_aislado_no_borra_los_satelites_del_pool() {
+        let mut by_transect = HashMap::new();
+        for (name, trend, seed) in [("T001", 2.0, 1), ("T002", -1.0, 2)] {
+            let mut obs = synthetic_transect(trend, 200, &[("L8", 1.0), ("L5", 5.0)], seed);
+            // una intersección rechazada por QC en medio de la serie
+            obs[37].1 = f64::NAN;
+            by_transect.insert(name.to_string(), obs);
+        }
+        let weights = calibrate(&by_transect, 10);
+        let l8 = weights.iter().find(|w| w.satname == "L8");
+        let l5 = weights.iter().find(|w| w.satname == "L5");
+        assert!(
+            l8.is_some() && l5.is_some(),
+            "un NaN aislado no debe borrar satélites: {weights:?}"
+        );
+        // y el resultado sigue siendo utilizable: L8 (menos ruido) pesa más
+        assert!(l8.unwrap().weight > l5.unwrap().weight);
+        for w in &weights {
+            assert!(w.std_m.is_finite() && w.weight.is_finite(), "{w:?}");
+        }
+    }
+
+    /// El proyecto promete resultados bit-idénticos. Dos `HashMap` distintos
+    /// con el mismo contenido lógico tienen (por `RandomState`) órdenes de
+    /// iteración distintos; si la acumulación de residuos dependiera de ese
+    /// orden, las sumas flotantes diferirían en los últimos bits.
+    #[test]
+    fn calibracion_es_bit_identica_ante_distinto_orden_de_hashmap() {
+        let build = || {
+            let mut m = HashMap::new();
+            for (i, (name, trend, seed)) in [
+                ("T001", 2.0, 1),
+                ("T002", -1.0, 2),
+                ("T003", 0.5, 3),
+                ("T004", 1.25, 4),
+                ("T005", -0.75, 5),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let _ = i;
+                m.insert(
+                    name.to_string(),
+                    synthetic_transect(trend, 150, &[("L8", 1.0), ("L5", 5.0), ("L7", 3.0)], seed),
+                );
+            }
+            m
+        };
+        let a = calibrate(&build(), 10);
+        let b = calibrate(&build(), 10);
+        assert_eq!(a.len(), b.len());
+        for (wa, wb) in a.iter().zip(b.iter()) {
+            assert_eq!(wa.satname, wb.satname);
+            assert_eq!(wa.n_obs, wb.n_obs);
+            assert_eq!(
+                wa.weight.to_bits(),
+                wb.weight.to_bits(),
+                "peso de {} no es bit-idéntico: {} vs {}",
+                wa.satname,
+                wa.weight,
+                wb.weight
+            );
+            assert_eq!(wa.std_m.to_bits(), wb.std_m.to_bits());
+        }
     }
 }

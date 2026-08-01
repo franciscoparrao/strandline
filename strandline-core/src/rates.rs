@@ -123,19 +123,24 @@ pub fn compute_rates(
         assert_eq!(w.len(), chainage.len());
     }
 
-    // observaciones válidas, en orden temporal de entrada
+    // observaciones válidas, en orden temporal de entrada. Se exige que la
+    // fecha también sea finita: un NaN en `times_years` produce tasas NaN que
+    // luego pasan TODOS los criterios de QC (cualquier comparación con NaN es
+    // falsa), es decir el transecto más corrupto quedaría retenido.
     let mut t = Vec::new();
     let mut y = Vec::new();
     let mut w = Vec::new();
     for i in 0..chainage.len() {
-        if chainage[i].is_finite() {
+        if chainage[i].is_finite() && times_years[i].is_finite() {
             t.push(times_years[i]);
             y.push(chainage[i]);
             w.push(weights.map(|ws| ws[i]).unwrap_or(1.0));
         }
     }
     let n = y.len();
-    if n < min_valid {
+    // `.max(2)` protege el indexado `t[n - 1]` de más abajo: con `min_valid`
+    // 0 o 1 (valor admisible del CLI) y una serie vacía, `n - 1` desbordaría.
+    if n < min_valid.max(2) {
         return None;
     }
 
@@ -266,6 +271,28 @@ mod tests {
         assert_eq!(r.n_valid, 3);
         assert!((r.nsm - 30.0).abs() < 1e-9);
         assert!((r.years - 3.0).abs() < 1e-9);
+    }
+
+    /// Una fecha NaN producía tasas NaN que luego pasaban todos los
+    /// criterios de QC; y `min_valid` 0/1 con serie sin observaciones
+    /// finitas desbordaba el índice `t[n - 1]`.
+    #[test]
+    fn fechas_no_finitas_y_min_valid_cero_no_producen_basura_ni_panic() {
+        // fecha NaN: la observación se descarta, el resto sigue siendo válido
+        let t = vec![2000.0, f64::NAN, 2002.0, 2003.0, 2004.0];
+        let y = vec![10.0, 20.0, 12.0, 13.0, 14.0];
+        let r = compute_rates(&t, &y, None, 3).expect("resto de la serie es válido");
+        assert_eq!(r.n_valid, 4);
+        assert!(r.lrr.is_finite() && r.years.is_finite() && r.lrr_r2.is_finite());
+
+        // min_valid = 0 con serie vacía / toda no finita: None, sin panic
+        assert!(compute_rates(&[], &[], None, 0).is_none());
+        let t = vec![f64::NAN, f64::NAN];
+        let y = vec![1.0, 2.0];
+        assert!(compute_rates(&t, &y, None, 0).is_none());
+        let t = vec![2000.0, 2001.0];
+        let y = vec![f64::NAN, f64::NAN];
+        assert!(compute_rates(&t, &y, None, 0).is_none());
     }
 
     #[test]
