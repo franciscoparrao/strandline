@@ -224,7 +224,10 @@ to within $1.5\%$.
 Within the sand-and-water region the land--water boundary is placed by an Otsu
 threshold on the water index. Because the beach classes are typically imbalanced,
 we use a class-balanced variant (\texttt{balanced\_otsu}) that weights the two
-populations equally and is fully deterministic. The shoreline is then extracted
+populations equally and is fully deterministic --- the reference implementation
+balances the classes by random subsampling instead, and thresholds over a buffer
+around a reference shoreline rather than the whole scene
+(Sect.~\ref{subsec:divergences}). The shoreline is then extracted
 as a sub-pixel contour of the thresholded index by a marching-squares algorithm
 with linear interpolation along cell edges, reproducing the behaviour of
 \texttt{skimage.measure.find\_contours}.
@@ -414,6 +417,56 @@ failure reason with zero mismatches. The tidal synthesis is validated against
 \texttt{pyTMD} (Sect.~\ref{subsec:tide}). These are equivalence checks, not accuracy claims:
 they establish that any downstream difference in a benchmark is attributable to
 the engine's own choices rather than to a porting error.
+
+\subsection{Documented divergences from the reference implementation}
+\label{subsec:divergences}
+A port whose value is fidelity should state where it is \emph{not} identical.
+Auditing our implementation line-by-line against the CoastSat source
+\citep{vos2019coastsat} identifies four deliberate divergences, all in the
+extraction stage; none affects the transect, rate or quality-control results,
+which reproduce the reference tables exactly (Sect.~\ref{subsec:validation}).
+We list them so that residual differences in Sect.~\ref{sec:results} can be
+attributed rather than absorbed.
+
+\emph{Thresholding domain.} CoastSat computes the sand/water threshold using
+only pixels inside the reference-shoreline buffer, dilated by five pixels, and
+balances the two classes by random subsampling. strandline has no
+reference-shoreline concept: it thresholds over the whole scene and balances the
+classes deterministically by weighting rather than by sampling, so that the
+result carries no dependence on a random seed. This is the most consequential
+difference of the four: on scenes with abundant inland bright sand (dune fields,
+dry river beds) the two samples genuinely differ, and part of the residual
+disagreement reported in Sect.~\ref{sec:results} originates here rather than in
+the contour arithmetic.
+
+\emph{Pixels with undefined features.} CoastSat replaces every non-finite
+feature value with $10^{-9}$ before classification, so a pixel whose local
+standard deviation or spectral index is undefined --- typically deep shadow,
+where an index denominator approaches zero --- is still assigned a class;
+the subsequent test for remaining \texttt{NaN}s is unreachable. strandline
+instead assigns such pixels to the \emph{other} class and excludes them from the
+threshold sample. We prefer not to feed a placeholder value into a classifier
+that was never trained on it, at the cost of a slightly smaller sample near
+shadowed shorelines.
+
+\emph{Low-sand fallback.} When fewer than 50 sand pixels fall inside the
+reference buffer, CoastSat abandons the classifier-refined threshold and reverts
+to a plain Otsu threshold on the water index. strandline has no equivalent
+switch: with the classifier enabled it always uses the class-balanced threshold,
+and the classifier-free mode is selected explicitly by the user rather than
+triggered automatically. On scenes with almost no exposed sand --- a submerged
+winter beach, an armoured urban front --- our threshold is therefore determined
+by a small sand sample, and the classifier-free mode is the appropriate choice.
+
+\emph{Proximity to nodata.} CoastSat discards shoreline vertices within a
+hard-coded 30~m of any nodata pixel, in addition to the configurable cloud
+buffer. strandline applies the cloud buffer but not the nodata rule: nodata is
+handled upstream, where the water index is undefined and the contour tracer skips
+the affected cells, which prevents contours \emph{inside} a gap but still admits
+vertices along its edge. This matters most for ETM+ scenes acquired after the
+2003 scan-line-corrector failure, whose gap stripes cross the beach, and we note
+it as a known limitation of the present version rather than a design choice
+(Sect.~\ref{sec:limitations}).
 
 \subsection{Accuracy against CoastSat}
 Positional accuracy is measured as the agreement between a strandline shoreline
@@ -669,6 +722,17 @@ where bright desert soil is spectrally close to beach sand, and we therefore did
 not adopt it. A properly retrained surface-reflectance classifier would need
 manual labelling and is left as future work; the field currently lacks a public
 one.
+
+A second group of limitations is the set of divergences from the reference
+implementation catalogued in Sect.~\ref{subsec:divergences}. Three of them are
+deliberate design choices we would make again --- deterministic class balancing
+instead of random subsampling, no placeholder value fed to the classifier, no
+implicit switch to a different thresholding algorithm --- but the fourth, the
+absence of CoastSat's 30~m nodata-proximity filter, is simply not yet
+implemented. It is inconsequential for scenes with a clean footprint and matters
+for ETM+ acquisitions after the scan-line-corrector failure, which our own
+archive-wide fetch now retrieves in volume; adding it is straightforward, since
+the exact distance transform used for the cloud buffer applies unchanged.
 
 Two further limits are physical rather than computational. Beach-slope estimation
 from the shoreline series is only identifiable where the tidal signal is large
