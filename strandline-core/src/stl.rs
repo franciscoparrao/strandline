@@ -14,14 +14,27 @@
 //! calendario, interpolación lineal en los meses sin observaciones) antes de
 //! aplicar STL con periodo 12 (estacionalidad anual). Recorta a `[primer,
 //! último]` mes con datos reales — no extrapola en los bordes.
+//!
+//! Los meses son **calendario real**: el año decimal de entrada se invierte
+//! al día del que proviene y de ahí se toma el mes civil. Una división del
+//! año en 12 bins iguales (30.44 días) desplazaría observaciones entre meses
+//! vecinos en los bordes, que es justo lo que rompe un cruce por mes contra
+//! una serie externa. Cada punto de la grilla trae su `(año, mes)` explícito
+//! para que ese join sea inequívoco.
 
 use crate::rates::decimal_year_from_mjd;
 
 /// Resultado de la descomposición STL de una serie de transecto.
 #[derive(Debug, Clone)]
 pub struct StlResult {
-    /// Año decimal de cada punto de la grilla mensual (centro del mes).
+    /// Año decimal de cada punto de la grilla mensual (día 15 del mes
+    /// calendario correspondiente).
     pub months: Vec<f64>,
+    /// `(año, mes)` calendario de cada punto de la grilla, con `mes` en
+    /// 1..=12. Es la etiqueta a usar para cruzar la serie contra índices
+    /// mensuales externos (ONI, oleaje): el año decimal es útil para
+    /// graficar, pero un join numérico sobre él es ambiguo en los bordes.
+    pub year_month: Vec<(i32, u32)>,
     /// Componente de tendencia (m).
     pub trend: Vec<f64>,
     /// Componente estacional (m).
@@ -47,22 +60,74 @@ pub fn decimal_year(mjd: f64) -> f64 {
     decimal_year_from_mjd(mjd)
 }
 
-/// Índice de mes absoluto (entero, base arbitraria) para un año decimal:
-/// separa la parte entera de año de la fracción de mes dentro del año.
-#[inline]
-fn abs_month(t_year: f64) -> i64 {
-    let year = t_year.floor();
-    let frac = t_year - year;
-    (year as i64) * 12 + (frac * 12.0).floor() as i64
+/// MJD del día 0 del calendario civil usado como época: MJD 40587 =
+/// 1970-01-01, la misma referencia que [`decimal_year_from_mjd`].
+const MJD_EPOCH_1970: f64 = 40587.0;
+
+/// Fecha civil `(año, mes, día)` desde días transcurridos since 1970-01-01
+/// (algoritmo de Howard Hinnant, exacto para el calendario gregoriano
+/// proléptico).
+fn civil_from_days(z: i64) -> (i32, u32, u32) {
+    let z = z + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 }.div_euclid(146_097);
+    let doe = z - era * 146_097; // [0, 146096]
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365; // [0, 399]
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
+    let mp = (5 * doy + 2) / 153; // [0, 11]
+    let d = doy - (153 * mp + 2) / 5 + 1; // [1, 31]
+    let m = if mp < 10 { mp + 3 } else { mp - 9 }; // [1, 12]
+    let y = if m <= 2 { y + 1 } else { y };
+    (y as i32, m as u32, d as u32)
 }
 
-/// Año decimal del centro de un mes absoluto (inversa aproximada de
-/// [`abs_month`], para etiquetar la grilla de salida).
+/// Días transcurridos since 1970-01-01 para una fecha civil (inversa de
+/// [`civil_from_days`]).
+fn days_from_civil(y: i32, m: u32, d: u32) -> i64 {
+    let y = if m <= 2 { y - 1 } else { y } as i64;
+    let era = if y >= 0 { y } else { y - 399 }.div_euclid(400);
+    let yoe = y - era * 400; // [0, 399]
+    let mp = if m > 2 { m - 3 } else { m + 9 } as i64; // [0, 11]
+    let doy = (153 * mp + 2) / 5 + d as i64 - 1; // [0, 365]
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy; // [0, 146096]
+    era * 146_097 + doe - 719_468
+}
+
+/// Índice de mes **calendario** absoluto (`año·12 + mes−1`) para un año
+/// decimal.
+///
+/// El año decimal se invierte primero al día juliano modificado que lo
+/// originó (la conversión de [`decimal_year_from_mjd`] es exactamente
+/// invertible sobre días enteros) y de ahí se toma el mes civil real.
+///
+/// La versión anterior hacía `(frac·12).floor()`, que parte el año en 12
+/// bins iguales de 365.2425/12 = 30.44 días: no son meses calendario y la
+/// época acumula desfase. Con ese cálculo, 2020-01-01 caía en el bin
+/// "diciembre 2019" y 2020-03-01 compartía bin con 2020-02-29 — suficiente
+/// para corromper cualquier cruce por mes contra una serie externa
+/// (climática, de oleaje) en los bordes de mes.
+#[inline]
+fn abs_month(t_year: f64) -> i64 {
+    let mjd_day = ((t_year - 1970.0) * 365.2425 + MJD_EPOCH_1970).round();
+    let days = (mjd_day - MJD_EPOCH_1970) as i64;
+    let (y, m, _) = civil_from_days(days);
+    y as i64 * 12 + (m as i64 - 1)
+}
+
+/// `(año, mes)` civil de un índice de mes absoluto.
+#[inline]
+fn year_month_of(m: i64) -> (i32, u32) {
+    (m.div_euclid(12) as i32, m.rem_euclid(12) as u32 + 1)
+}
+
+/// Año decimal representativo de un mes calendario (su día 15), en la misma
+/// convención que la entrada — inversa de [`abs_month`] para etiquetar la
+/// grilla de salida.
 #[inline]
 fn month_to_decimal_year(m: i64) -> f64 {
-    let year = m.div_euclid(12);
-    let month = m.rem_euclid(12);
-    year as f64 + (month as f64 + 0.5) / 12.0
+    let (y, mo) = year_month_of(m);
+    let mjd = days_from_civil(y, mo, 15) as f64 + MJD_EPOCH_1970;
+    decimal_year_from_mjd(mjd)
 }
 
 /// Resamplea una serie irregular a una grilla mensual: media de las
@@ -72,7 +137,9 @@ fn month_to_decimal_year(m: i64) -> f64 {
 ///
 /// Devuelve `None` si hay menos de 2 meses distintos con datos (no hay nada
 /// que interpolar/decomponer).
-fn resample_monthly(times_years: &[f64], chainage: &[f64]) -> Option<(Vec<f64>, Vec<f64>, Vec<bool>)> {
+type MonthlyGrid = (Vec<f64>, Vec<(i32, u32)>, Vec<f64>, Vec<bool>);
+
+fn resample_monthly(times_years: &[f64], chainage: &[f64]) -> Option<MonthlyGrid> {
     use std::collections::BTreeMap;
     let mut bins: BTreeMap<i64, (f64, usize)> = BTreeMap::new();
     for (&t, &y) in times_years.iter().zip(chainage) {
@@ -93,11 +160,13 @@ fn resample_monthly(times_years: &[f64], chainage: &[f64]) -> Option<(Vec<f64>, 
 
     let observed: Vec<(i64, f64)> = means.into_iter().collect();
     let mut months = Vec::new();
+    let mut year_month = Vec::new();
     let mut values = Vec::new();
     let mut interpolated = Vec::new();
     let mut idx = 0usize; // índice del próximo punto observado a la derecha
     for m in first..=last {
         months.push(month_to_decimal_year(m));
+        year_month.push(year_month_of(m));
         if idx < observed.len() && observed[idx].0 == m {
             values.push(observed[idx].1);
             interpolated.push(false);
@@ -111,7 +180,7 @@ fn resample_monthly(times_years: &[f64], chainage: &[f64]) -> Option<(Vec<f64>, 
             interpolated.push(true);
         }
     }
-    Some((months, values, interpolated))
+    Some((months, year_month, values, interpolated))
 }
 
 fn variance(xs: &[f64]) -> f64 {
@@ -141,8 +210,10 @@ pub fn decompose(
     min_months: usize,
     min_span_years: f64,
 ) -> Option<StlResult> {
-    assert_eq!(times_years.len(), chainage.len());
-    let (months, values, interpolated) = resample_monthly(times_years, chainage)?;
+    if times_years.len() != chainage.len() {
+        return None;
+    }
+    let (months, year_month, values, interpolated) = resample_monthly(times_years, chainage)?;
 
     let n_observed = interpolated.iter().filter(|&&i| !i).count();
     if n_observed < min_months {
@@ -177,6 +248,7 @@ pub fn decompose(
 
     Some(StlResult {
         months,
+        year_month,
         trend,
         seasonal,
         residual,
@@ -275,12 +347,59 @@ mod tests {
         assert!(decompose(&[], &[], 12, 2.0).is_none());
     }
 
+    /// Round-trip del calendario civil sobre fechas de referencia y sobre
+    /// todos los días de varios años (incluidos bisiestos y seculares).
+    #[test]
+    fn calendario_civil_es_exacto() {
+        assert_eq!(civil_from_days(0), (1970, 1, 1));
+        assert_eq!(days_from_civil(1970, 1, 1), 0);
+        // MJD 58849 = 2020-01-01 (58849 − 40587 = 18262 días)
+        assert_eq!(civil_from_days(18262), (2020, 1, 1));
+        assert_eq!(civil_from_days(18262 + 59), (2020, 2, 29)); // 2020 bisiesto
+        assert_eq!(civil_from_days(-1), (1969, 12, 31));
+        for d in -40_000..40_000i64 {
+            let (y, m, dd) = civil_from_days(d);
+            assert_eq!(days_from_civil(y, m, dd), d, "round-trip falla en {d}");
+        }
+    }
+
+    /// Los casos exactos que el binning de 30.44 días clasificaba mal.
+    #[test]
+    fn meses_son_calendario_real_no_bins_de_30_44_dias() {
+        let dy = |y: i32, m: u32, d: u32| {
+            decimal_year_from_mjd(days_from_civil(y, m, d) as f64 + MJD_EPOCH_1970)
+        };
+        // 2020-01-01 caía en "diciembre 2019" con el cálculo anterior
+        assert_eq!(year_month_of(abs_month(dy(2020, 1, 1))), (2020, 1));
+        // 2020-03-01 compartía bin con 2020-02-29
+        assert_eq!(year_month_of(abs_month(dy(2020, 3, 1))), (2020, 3));
+        assert_ne!(abs_month(dy(2020, 3, 1)), abs_month(dy(2020, 2, 29)));
+        assert_eq!(year_month_of(abs_month(dy(2020, 2, 29))), (2020, 2));
+        // primer y último día de cada mes de un año bisiesto y uno normal
+        for year in [2019, 2020] {
+            for m in 1..=12u32 {
+                let last = match m {
+                    1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+                    4 | 6 | 9 | 11 => 30,
+                    _ if year % 4 == 0 => 29,
+                    _ => 28,
+                };
+                assert_eq!(year_month_of(abs_month(dy(year, m, 1))), (year, m));
+                assert_eq!(year_month_of(abs_month(dy(year, m, last))), (year, m));
+            }
+        }
+        // la etiqueta de salida cae dentro del mes que representa
+        for m in [abs_month(dy(2020, 1, 15)), abs_month(dy(1999, 12, 15))] {
+            assert_eq!(year_month_of(abs_month(month_to_decimal_year(m))), year_month_of(m));
+        }
+    }
+
     #[test]
     fn resample_monthly_interpola_huecos() {
         // dos meses con datos separados por 3 meses vacíos
         let t = vec![2020.0, 2020.3333]; // mes 0 y mes ~4
         let y = vec![0.0, 12.0];
-        let (months, values, interpolated) = resample_monthly(&t, &y).unwrap();
+        let (months, _ym, values, interpolated) = resample_monthly(&t, &y).unwrap();
         assert_eq!(months.len(), values.len());
         assert!(!interpolated[0]);
         assert!(!interpolated[interpolated.len() - 1]);

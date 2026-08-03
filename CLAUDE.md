@@ -1166,3 +1166,86 @@ benchmark (software + accuracy vs CoastSat + velocidad).
     (pyTMD/GOT/Castelle 2024/Warrick 2025) y entradas con detalles a
     finalizar (`parra_erosion`, `surtgis`, DOI de CoastSeg a verificar con
     `/verify-refs`).
+
+- **2026-07-22 / 2026-08-03**: **Segunda auditoría del motor completa — los 5
+  HIGH y los 8 MEDIUM corregidos** (reporte: `AUDITORIA_CODIGO_2026-07-22.md`).
+  Metodología: clippy + suite como ground truth, grafo de dependencias, 5
+  revisiones profundas paralelas por subsistema, y **verificación posterior de
+  cada hallazgo mayor contra el código** (los de paridad, contra el
+  `SDS_shoreline.py` real de CoastSat). 103 tests (era 89), verdes en paralelo
+  y single-thread, clippy limpio.
+  - **Patrón dominante de los defectos**: degradación silenciosa en la
+    dirección peligrosa. Un NaN —que el CSV de `intersect` trae POR DISEÑO
+    como marca de QC— volvía NaN el detrend de `satellite_weights` y borraba
+    satélites completos de la tabla, dejando a `rates` con pesos uniformes
+    creyendo que había calibrado; las tasas NaN **pasaban los 5 criterios de
+    QC** (toda comparación con NaN es falsa) y quedaban *retenidas*,
+    clasificadas "Stable"; y la frontera CSV del CLI descartaba filas sin
+    contador en ~12 sitios (un `dates.csv` con parte de las fechas en otro
+    formato producía tasas sobre el subconjunto restante, reportadas como
+    completas — la misma clase de bug que R1).
+  - **Fixes estructurales**: helper `CsvDiscards` con contadores por causa +
+    flag global `--strict` (cierra toda la familia de descartes silenciosos);
+    guards de finitud en `satellite_weights`/`rates`/`qc`; contratos forzados
+    en `tide` (`TideCorrection::new` → `Result`, campos privados; el CSV
+    rechaza `nan`/`inf`, rangos inválidos, duplicados y mojibake que hacía
+    panic); `fetch` con escritura atómica tmp+rename (la reanudación podía
+    fijar para siempre una máscara truncada) y exit ≠ 0 si el batch entero
+    falló.
+  - **Determinismo restaurado**: `calibrate` iteraba un `HashMap`, así que las
+    sumas flotantes diferían en el último ulp entre corridas — rompía la
+    promesa bit-idéntico del paper (§2.7) incluso single-thread. Verificado
+    empíricamente antes (diferían) y después (5 corridas bit-idénticas).
+  - **Paridad**: `min_beach_area` a píxeles con `ceil`, como CoastSat
+    (`SDS_shoreline.py:138`), no `round`. **Ninguna cifra del paper cambia**:
+    con los settings del estudio de referencia (4500 m²) el cociente es entero
+    exacto a 15 y 30 m. Solo afecta al default propio del motor (500 m²) a
+    15 m, que es el fixture de CI: golden actualizado a propósito (sand
+    354→352) con la justificación escrita en el test. **Quedan 3 divergencias
+    con CoastSat sin resolver** (NaN→`other` vs relleno 1e-9; falta el
+    fallback con <50 px de arena; falta el filtro de 30 m a nodata, relevante
+    ahora que `fetch` trae L7 SLC-off): decisión pendiente de replicarlas o
+    documentarlas como deliberadas en Methods. Y la diferencia estructural del
+    *reference buffer* (CoastSat umbraliza solo dentro del buffer de la
+    reference shoreline dilatado; strandline usa toda la escena) **debe ir a
+    Methods del paper** igual.
+  - **M4 — STL usaba bins de 30.44 días, no meses calendario** (2026-08-03):
+    `(frac·12).floor()` sobre el año decimal parte el año en 12 bins iguales,
+    así que 2020-01-01 caía en "diciembre 2019" y 2020-03-01 compartía bin con
+    2020-02-29. Corregido invirtiendo el año decimal al día que lo originó y
+    tomando el mes civil real (calendario propio, round-trip verificado sobre
+    80.000 días). `StlResult` expone `year_month` y el CSV escribe
+    `year,month`, para que el join contra series mensuales externas no dependa
+    de un flotante.
+    - **Re-verificación del cruce ENSO** (el resultado citado en la adenda del
+      2026-07-17 se había calculado con el binning defectuoso): rehecho
+      completo sobre los 72 transectos QC-buenos, 20.129 observaciones, 491
+      meses. **La conclusión se sostiene** — lag 0 r=−0.071 (p=0.17, no
+      significativo), mejor |r| en lag −7 con r=−0.131 (p=0.011), r²=1.7%.
+      ENSO sigue descartado como explicación. Dato que refuerza la corrección:
+      el mejor lag pasó de +12 meses (residuo siguiendo al ONI un año después,
+      físicamente extraño) a −7, mucho más cerca del −4 que encontró el
+      análisis independiente del propio paper (r=−0.129) — arreglar el binning
+      acercó este análisis al del paper.
+  - **M5 — `fit_edge` devolvía `Some` sin haber ajustado nada** (2026-08-03):
+    si LM rechazaba los 30 pasos, `p` seguía siendo el `init` y se devolvía con
+    una σ calculada sobre él — indistinguible de un ajuste real, y esas σ
+    alimentan los pesos del WLR (S5a). Ahora se distingue "no convergió" de
+    "el init ya era estacionario" (norma del gradiente `Jᵀr` contra la escala
+    de los residuos); sin convergencia → `None`, que en el camino sembrado
+    activa el fallback honesto (la semilla con `sigma_m=NaN`).
+    - **No toca nada publicado**: `pixel_locking` da métricas idénticas
+      (RMSE 1.61→0.53 m, sesgo −0.78→+0.02 m, n=250 — las cifras del paper);
+      y `profile` end-to-end sobre el fixture, compilado con y sin el fix, da
+      **54/54 chainages bit-idénticos**. Es esperable por construcción:
+      `init[2]` es la semilla, así que el fallback devuelve el mismo chainage
+      que antes devolvía el "ajuste" no convergente — lo único que cambia es
+      que la σ espuria pasa a ser `NaN`.
+  - **Fortalezas confirmadas línea por línea** (preservar): la tabla de
+    marching squares es transcripción exacta de skimage (verificada caso por
+    caso, incluidas sillas y `fully_connected='low'`); la validación armónica
+    tiene tolerancias honestas por constituyente; los kernels acumulan en f64 y
+    el clamp de varianza evita un bug de NaN que CoastSat sí padece; los tests
+    codifican modos de falla reales (meseta espuria, E5, heurísticas de
+    baseline descartadas). Arquitectura unidireccional sin ciclos, 0 TODOs
+    fósiles, dependencias todas en uso.

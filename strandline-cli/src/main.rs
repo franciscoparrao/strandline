@@ -1610,7 +1610,12 @@ fn main() -> anyhow::Result<()> {
             d.finish(cli.strict)?;
 
             let mut out =
-                String::from("transect,month,trend_m,seasonal_m,residual_m,interpolated\n");
+                // `year,month` explícitos además del año decimal: el join
+                // contra series mensuales externas (ONI, oleaje) debe hacerse
+                // por mes calendario, no por un flotante
+                String::from(
+                    "transect,year,month,decimal_year,trend_m,seasonal_m,residual_m,interpolated\n",
+                );
             let mut n_ok = 0usize;
             let mut amplitudes = Vec::new();
             for (tname, mut obs) in by_transect {
@@ -1623,9 +1628,12 @@ fn main() -> anyhow::Result<()> {
                 n_ok += 1;
                 amplitudes.push(r.seasonal_amplitude_m);
                 for i in 0..r.months.len() {
+                    let (yy, mm) = r.year_month[i];
                     out.push_str(&format!(
-                        "{},{:.4},{:.4},{:.4},{:.4},{}\n",
+                        "{},{},{:02},{:.4},{:.4},{:.4},{:.4},{}\n",
                         tname,
+                        yy,
+                        mm,
                         r.months[i],
                         r.trend[i],
                         r.seasonal[i],

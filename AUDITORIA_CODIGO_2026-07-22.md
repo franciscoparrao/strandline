@@ -1,7 +1,8 @@
 # Auditoría de código — strandline (2ª pasada, 2026-07-22)
 
-> **ESTADO (2026-07-22, misma sesión): los 5 HIGH y 6 de los 8 MEDIUM están
-> CORREGIDOS y validados.** 99 tests verdes (era 89) en modo paralelo y
+> **ESTADO: los 5 HIGH y los 8 MEDIUM están CORREGIDOS y validados**
+> (2026-07-22 los 5 HIGH + 6 MEDIUM; 2026-08-03 los dos restantes, M4 y M5,
+> que requerían re-validar resultados ya citados). 103 tests verdes (era 89) en modo paralelo y
 > single-thread, clippy limpio, goldens de paridad intactos salvo uno
 > actualizado a propósito (ver M3a). Verificaciones end-to-end con el binario
 > real, no solo unit tests. Detalle por hallazgo abajo, marcado `[CORREGIDO]`
@@ -182,7 +183,7 @@ one-liner (`ceil`); (b-d) replicar o documentar como divergencia deliberada.
 de la reference shoreline dilatado; strandline usa toda la escena — debe
 decirse en Methods.
 
-### [M4] [PENDIENTE] STL: bins de 30.44 días, no meses calendario
+### [M4] [CORREGIDO] STL: bins de 30.44 días, no meses calendario
 `stl.rs:53-57`: `(frac*12).floor()` sobre año decimal → 2020-01-01 cae en el
 bin "diciembre 2019"; 2020-03-01 comparte bin con 2020-02-29 (verificado
 numéricamente por el agente). El doc promete "mes calendario" — falso en
@@ -193,7 +194,7 @@ mete ruido en los lags; improbable que voltee r≈-0.04, pero re-correr con
 meses calendario antes de citarlo en un paper. **Fix**: derivar el mes del
 calendario civil real desde MJD.
 
-### [M5] [PENDIENTE] `fit_edge` retorna `Some` aunque LM nunca haya aceptado un paso
+### [M5] [CORREGIDO] `fit_edge` retorna `Some` aunque LM nunca haya aceptado un paso
 `subpixel.rs:180-267`: si las 30 iteraciones se rechazan, devuelve el init
 intacto con σ calculada en ese punto — un `ProfileFit` de apariencia
 legítima indistinguible del fallback honesto (`sigma_m=NaN`). Contamina
@@ -361,14 +362,8 @@ nuevos sin pickle de referencia.
   (sand 354 → 352), actualizado a propósito por el fix `ceil`, con la
   justificación completa escrita en el test.
 
-### Pendientes (no corregidos en esta tanda)
+### Pendientes (no corregidos)
 
-- **M4** — STL con bins de 30.44 días en vez de meses calendario. Requiere
-  conversión MJD → calendario civil y re-verificar el cruce ENSO de la adenda
-  del 2026-07-17 antes de citarlo.
-- **M5** — `fit_edge` devuelve `Some` aunque LM no acepte ningún paso (σ de
-  apariencia legítima). Necesita un flag `improved` y re-validar
-  `pixel_locking`.
 - **M3b-d** — las otras tres divergencias con CoastSat (NaN→`other` vs relleno
   1e-9; fallback con <50 px de arena; filtro de 30 m a nodata). Decisión
   pendiente: replicarlas o documentarlas como deliberadas en Methods. La nota
@@ -378,3 +373,62 @@ nuevos sin pickle de referencia.
 - Los LOW de la tabla compacta (guardas de dominio en `proj`, clamp de `r²`,
   t-Student, empates de `seaward_hint`, escrituras atómicas en el resto de
   outputs).
+
+---
+
+## Segunda tanda (2026-08-03): M4 y M5
+
+Los dos que quedaban requerían re-validar resultados ya citados, así que se
+hicieron con su verificación explícita.
+
+### M4 — meses calendario en STL
+
+`abs_month` invierte el año decimal al día que lo originó (la conversión de
+`decimal_year_from_mjd` es exactamente invertible sobre días enteros) y toma
+el mes civil real, con un calendario gregoriano propio (algoritmo de Hinnant,
+round-trip verificado sobre 80.000 días consecutivos). `StlResult` expone
+además `year_month: Vec<(i32, u32)>` y el CSV del CLI ahora escribe
+`year,month` junto al año decimal: el join contra series mensuales externas
+deja de depender de un flotante.
+
+**Re-verificación del cruce ENSO** (el resultado citado en la adenda del
+2026-07-17, que se había calculado con el binning defectuoso). Se rehízo
+completo: 72 transectos QC-retenidos de Viña, 20.129 observaciones, 491 meses
+de residuo promediado, contra el ONI del propio `enso_analysis.pkl`.
+
+| | binning 30.44 d (antes) | meses calendario (ahora) |
+|---|---|---|
+| lag 0 | r = −0.038 (p = 0.46) | r = −0.071 (p = 0.17) |
+| mejor \|r\| | lag +12, r = −0.109 | lag −7, r = −0.131 (p = 0.011) |
+| varianza explicada | 1.2 % | 1.7 % |
+
+**La conclusión se sostiene**: ENSO explica como máximo ~1.7 % de la varianza
+del residuo y en lag 0 no es significativo — sigue descartado como
+explicación de la baja `seasonal_variance_frac` de Viña. Dato que refuerza la
+corrección: el mejor lag pasó de +12 meses (residuo *siguiendo* al ONI un año
+después, físicamente extraño) a −7 meses, mucho más cerca del −4 que había
+encontrado el análisis independiente del propio paper (r = −0.129) — es
+decir, arreglar el binning acercó este análisis al del paper en vez de
+alejarlo.
+
+### M5 — `fit_edge` sin convergencia
+
+Se distingue "no convergió" de "el init ya era estacionario": se registra si
+algún paso fue aceptado y, si ninguno lo fue, se compara la norma infinito
+del gradiente `Jᵀr` en el init contra la escala de los residuos. Sin pasos
+aceptados y con gradiente no nulo → `None`, que en el camino sembrado activa
+el fallback honesto (la semilla, con `sigma_m = NaN`) en vez de reportar una
+σ calculada sobre parámetros que nunca se ajustaron.
+
+**Verificación de que no toca nada publicado**:
+- `pixel_locking` (el test que respalda la cifra de accuracy del paper) da
+  métricas **idénticas**: RMSE 1.61 → 0.53 m, sesgo −0.78 → +0.02 m, n = 250.
+  Los 250 ajustes de ese experimento convergían de verdad.
+- Comparación end-to-end del subcomando `profile` sobre el fixture, con y sin
+  el fix compilado: **54/54 transectos con chainage bit-idéntico** (diferencia
+  máxima 0.0 m) y ningún fallback nuevo. Es esperable por construcción —
+  `init[2]` es la semilla, así que el fallback devuelve el mismo chainage que
+  antes devolvía el "ajuste" no convergente; lo único que cambia es que la σ
+  espuria pasa a ser `NaN`.
+
+103 tests (era 99), verdes en paralelo y single-thread, clippy limpio.

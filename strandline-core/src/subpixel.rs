@@ -174,9 +174,34 @@ fn model(p: &[f64; 4], x: f64) -> f64 {
     p[0] + p[1] * ((x - p[2]) / p[3]).tanh()
 }
 
+/// Norma infinito del gradiente `Jᵀr` del modelo en `p`. Vale ~0 en un punto
+/// estacionario (mínimo local), que es la señal de que un ajuste sin pasos
+/// aceptados igual convergió.
+fn gradient_inf_norm(xs: &[f64], ys: &[f64], p: &[f64; 4]) -> f64 {
+    let mut jtr = [0.0f64; 4];
+    for (&x, &y) in xs.iter().zip(ys) {
+        let u = (x - p[2]) / p[3];
+        let th = u.tanh();
+        let sech2 = 1.0 - th * th;
+        let j = [1.0, th, -p[1] * sech2 / p[3], -p[1] * sech2 * u / p[3]];
+        let r = y - model(p, x);
+        for a in 0..4 {
+            jtr[a] += j[a] * r;
+        }
+    }
+    jtr.iter().fold(0.0f64, |acc, g| acc.max(g.abs()))
+}
+
 /// Ajuste Levenberg-Marquardt del modelo de borde. Devuelve
-/// `(params, cov_x0, rmse)` o `None` si no converge o el sistema es
-/// singular. `cov_x0` es la varianza del parámetro `x₀`.
+/// `(params, cov_x0, rmse)` o `None` si el sistema es singular **o si el
+/// ajuste no converge**. `cov_x0` es la varianza del parámetro `x₀`.
+///
+/// "No converge" significa que ningún paso fue aceptado (λ creció hasta
+/// romper, o se agotaron las iteraciones sin una sola mejora del SSE) y el
+/// punto inicial no era ya estacionario. Sin esta distinción la función
+/// devolvía `Some` con los parámetros **iniciales intactos** y una σ
+/// calculada sobre ellos: un ajuste que nunca ocurrió, indistinguible para
+/// el consumidor de uno legítimo — y esas σ alimentan los pesos del WLR.
 fn fit_edge(
     xs: &[f64],
     ys: &[f64],
@@ -194,6 +219,12 @@ fn fit_edge(
         .zip(ys)
         .map(|(&x, &y)| (y - model(&p, x)).powi(2))
         .sum();
+    // gradiente en el punto inicial: si ya es ~0, el init es estacionario y
+    // que no se acepte ningún paso es convergencia, no fallo
+    let grad0 = gradient_inf_norm(xs, ys, &p);
+    let scale0 = n as f64 * (sse / n as f64).sqrt().max(1e-12);
+    let init_is_stationary = grad0 <= 1e-8 * scale0;
+    let mut accepted_any = false;
 
     for _ in 0..max_iter {
         // jacobiano y gradiente
@@ -235,6 +266,7 @@ fn fit_edge(
             let rel = (sse - sse_new) / sse.max(1e-30);
             p = p_new;
             sse = sse_new;
+            accepted_any = true;
             lambda = (lambda * 0.3).max(1e-12);
             if rel < 1e-10 {
                 break;
@@ -245,6 +277,11 @@ fn fit_edge(
                 break;
             }
         }
+    }
+
+    // el ajuste no ocurrió: `p` sigue siendo `init`
+    if !accepted_any && !init_is_stationary {
+        return None;
     }
 
     // covarianza de x0: (JᵀJ)⁻¹[2,2] · sse/(n−4)
@@ -739,6 +776,56 @@ mod tests {
             "chainage = {} vs 350.0 esperado",
             fit.chainage_m
         );
+    }
+
+    /// `fit_edge` devolvía `Some` con los parámetros **iniciales intactos**
+    /// cuando LM no lograba aceptar ni un paso (λ crecía hasta romper): un
+    /// ajuste que nunca ocurrió, con σ de apariencia legítima. Ahora eso es
+    /// `None`, y el caso simétrico (init ya estacionario) sigue siendo un
+    /// resultado válido.
+    #[test]
+    fn fit_edge_sin_pasos_aceptados_devuelve_none() {
+        // Datos que el modelo a + b·tanh((x−x0)/w) no puede ajustar mejor
+        // que su init desde un init muy alejado: ruido puro de alta
+        // frecuencia, sin borde. Con `max_iter` = 1 se garantiza que si el
+        // único paso se rechaza, no hubo ninguno aceptado.
+        let xs: Vec<f64> = (0..40).map(|i| i as f64).collect();
+        let ys: Vec<f64> = (0..40)
+            .map(|i| if i % 2 == 0 { 1000.0 } else { -1000.0 })
+            .collect();
+        // init absurdo (w minúsculo, x0 fuera del rango) del que LM no puede
+        // salir en un solo paso
+        let init = [0.0, 1e-6, -1e6, 1e-6];
+        assert!(
+            fit_edge(&xs, &ys, init, 1).is_none(),
+            "un ajuste sin ningún paso aceptado no debe reportarse como válido"
+        );
+
+        // control: un borde real con init razonable SÍ converge
+        let xs: Vec<f64> = (0..40).map(|i| i as f64).collect();
+        let ys: Vec<f64> = xs.iter().map(|&x| 0.1 + 0.5 * ((x - 20.0) / 4.0).tanh()).collect();
+        let (p, var, rmse) = fit_edge(&xs, &ys, [0.0, 0.4, 17.0, 5.0], 60)
+            .expect("un borde sigmoide limpio debe converger");
+        assert!((p[2] - 20.0).abs() < 0.5, "x0 = {}", p[2]);
+        assert!(var.is_finite() && rmse < 1e-3, "var = {var}, rmse = {rmse}");
+    }
+
+    /// El fallback sembrado debe seguir activándose (y marcando σ=NaN) ahora
+    /// que `fit_edge` puede devolver `None` por no-convergencia, no solo por
+    /// singularidad: el contrato "nunca peor que la semilla" se mantiene.
+    #[test]
+    fn fallback_a_la_semilla_sigue_activo_con_ajuste_no_convergente() {
+        let raster = synthetic_false_plateau_then_edge(350.0);
+        let fit = fit_profile(
+            &raster,
+            &transect_at_row(20),
+            0.3,
+            Some(350.0),
+            &ProfileSettings::default(),
+        )
+        .expect("con semilla nunca debería ser None");
+        assert!((fit.chainage_m - 350.0).abs() < 1e-9);
+        assert!(fit.sigma_m.is_nan());
     }
 
     #[test]
