@@ -136,19 +136,6 @@ engine-vs-engine, no exactitud absoluta; el benchmark Vos 2023 reporta
 - `~/proyectos/surtgis/`, `~/proyectos/smelt/`, `~/proyectos/forge/` —
   crates a reusar.
 
-## Inteligencia competitiva (2026-07-10)
-
-Seminario MONCOSTA (U. Mayor / Centro Hémera, Idania Briceño) — bitácora en
-`~/proyectos/zenodo-gaps/propuesta-4-erosion-costera/references/seminario_moncosta_2026-07-08_bitacora.md`:
-- Construyeron algoritmo propio de extracción + 3 herramientas de escritorio
-  (Python) por "independencia tecnológica" → **valida el gap de tooling**.
-- Su stack va camino a ser comercial/cerrado (venta de paquetes, acceso solo
-  socios) → strandline open-source compilado queda en el cuadrante opuesto:
-  argumento de diferenciación para el paper C&G.
-- Features de ellos a considerar para V2 (NO V1): tasas por ventanas
-  quinquenales, proyecciones a 10/50/70 años, formatos de fecha flexibles,
-  dashboard para no-expertos.
-
 ## Estado / bitácora
 
 - **2026-07-10**: Proyecto creado desde el análisis de gaps de la línea
