@@ -19,6 +19,54 @@ use crate::classify::remove_small_objects;
 /// Bits del QA_PIXEL considerados nube (cirrus y cloud, como CoastSat).
 const QA_CLOUD_BITS: u16 = (1 << 2) | (1 << 3);
 
+/// Máscara de píxeles sin dato, réplica de `im_nodata` de
+/// `SDS_preprocess.preprocess_single` (CoastSat):
+///
+/// - cualquier banda no finita (`NaN`/`±inf`) marca el píxel; **o**
+/// - las tres bandas Green, NIR y SWIR1 valen exactamente 0 a la vez (la
+///   conjunción, no la disyunción: un 0 aislado en una sola banda es un
+///   dato válido, los tres juntos son relleno de borde de escena o de gap
+///   del corrector de línea de barrido).
+///
+/// Los índices son 0-based sobre `bands`. Devuelve `None` si algún índice
+/// está fuera de rango o las bandas no comparten shape.
+pub fn nodata_mask(
+    bands: &[Raster<f32>],
+    green_idx: usize,
+    nir_idx: usize,
+    swir1_idx: usize,
+) -> Option<Array2<bool>> {
+    let first = bands.first()?;
+    let (rows, cols) = first.shape();
+    if bands.iter().any(|b| b.shape() != (rows, cols)) {
+        return None;
+    }
+    let (g, n, s) = (
+        bands.get(green_idx)?,
+        bands.get(nir_idx)?,
+        bands.get(swir1_idx)?,
+    );
+
+    let mut out = Array2::from_elem((rows, cols), false);
+    for b in bands {
+        let d = b.data();
+        for ((r, c), v) in d.indexed_iter() {
+            if !v.is_finite() {
+                out[[r, c]] = true;
+            }
+        }
+    }
+    let (gd, nd, sd) = (g.data(), n.data(), s.data());
+    for r in 0..rows {
+        for c in 0..cols {
+            if gd[[r, c]] == 0.0 && nd[[r, c]] == 0.0 && sd[[r, c]] == 0.0 {
+                out[[r, c]] = true;
+            }
+        }
+    }
+    Some(out)
+}
+
 /// Tipo de banda de máscara de nubes de entrada.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MaskKind {
@@ -249,5 +297,50 @@ mod tests {
         let mask = cloud_mask_from_qa(&qa, 40);
         assert!(!mask[[5, 5]], "blob chico debió eliminarse");
         assert!(mask[[17, 15]], "nube real debió conservarse");
+    }
+
+    fn band(vals: Vec<f32>, rows: usize, cols: usize) -> Raster<f32> {
+        let mut r = Raster::<f32>::from_vec(vals, rows, cols).unwrap();
+        r.set_nodata(None);
+        r
+    }
+
+    #[test]
+    fn nodata_mask_replica_la_definicion_de_coastsat() {
+        let (rows, cols) = (4, 4);
+        // 5 bandas B,G,R,NIR,SWIR1 con valores válidos por defecto
+        let mut b: Vec<Vec<f32>> = (0..5).map(|_| vec![0.1f32; rows * cols]).collect();
+
+        // (0,0): las TRES bandas G/NIR/SWIR1 en cero -> nodata
+        for k in [1usize, 3, 4] {
+            b[k][0] = 0.0;
+        }
+        // (1,1): solo Green en cero -> dato VÁLIDO (es una conjunción, no
+        // una disyunción: un 0 aislado es una medición legítima)
+        b[1][cols + 1] = 0.0;
+        // (2,2): NaN en una banda cualquiera -> nodata
+        b[2][2 * cols + 2] = f32::NAN;
+        // (3,3): -inf en otra -> nodata
+        b[0][3 * cols + 3] = f32::NEG_INFINITY;
+
+        let bands: Vec<Raster<f32>> = b.into_iter().map(|v| band(v, rows, cols)).collect();
+        let m = nodata_mask(&bands, 1, 3, 4).expect("bandas consistentes");
+
+        assert!(m[[0, 0]], "G+NIR+SWIR1 todas en cero deben ser nodata");
+        assert!(!m[[1, 1]], "un solo 0 en Green NO es nodata");
+        assert!(m[[2, 2]], "NaN en cualquier banda es nodata");
+        assert!(m[[3, 3]], "-inf en cualquier banda es nodata");
+        // el resto es dato válido
+        assert_eq!(m.iter().filter(|&&v| v).count(), 3);
+    }
+
+    #[test]
+    fn nodata_mask_rechaza_bandas_inconsistentes() {
+        let a = band(vec![0.1; 4], 2, 2);
+        let b = band(vec![0.1; 6], 2, 3);
+        assert!(nodata_mask(&[a, b], 0, 0, 1).is_none(), "shapes distintos");
+        let a = band(vec![0.1; 4], 2, 2);
+        assert!(nodata_mask(&[a], 0, 1, 2).is_none(), "índice fuera de rango");
+        assert!(nodata_mask(&[], 0, 1, 2).is_none(), "sin bandas");
     }
 }

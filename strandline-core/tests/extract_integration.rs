@@ -83,3 +83,78 @@ fn extract_coastsat_compat_matches_golden() {
     assert_eq!(cls.whitewater_px, 39);
     assert_eq!(cls.water_px, 4610);
 }
+
+/// Filtro de proximidad a nodata (paso 3 de `process_shoreline` de CoastSat,
+/// 30 m): se punza en el fixture una franja de gap como las que dejan las
+/// escenas ETM+ posteriores a la falla del corrector de línea de barrido
+/// —Green, NIR y SWIR1 a cero a la vez, que es como CoastSat define nodata—
+/// y se comprueba que los vértices pegados al borde de la franja se eliminan.
+#[test]
+fn nodata_filter_removes_vertices_along_a_scan_gap() {
+    use surtgis_core::io::{read_geotiff_bands, write_geotiff_stack};
+    use surtgis_core::io::GeoTiffOptions;
+
+    let mut bands = read_geotiff_bands::<f32, _>(&fixture("vina_2020-01-10_96px_ms.tif"))
+        .expect("leyendo fixture");
+    let (rows, cols) = bands[0].shape();
+
+    // franja vertical de nodata que cruza la escena (y por tanto la costa)
+    let gap_col = cols / 2;
+    for k in [1usize, 3, 4] {
+        // Green, NIR, SWIR1 (0-based), las tres que mira `nodata_mask`
+        let d = bands[k].data_mut();
+        for r in 0..rows {
+            d[[r, gap_col]] = 0.0;
+        }
+    }
+    let tmp = std::env::temp_dir().join("strandline_nodata_gap_ms.tif");
+    let refs: Vec<&_> = bands.iter().collect();
+    write_geotiff_stack(&refs, None, &tmp, &GeoTiffOptions::default()).expect("escribiendo escena");
+
+    let with_filter = extract_shoreline(&tmp, Some(&fixture("vina_2020-01-10_96px_mask.tif")),
+        &ExtractParams::default())
+        .expect("extracción con filtro");
+    let without = extract_shoreline(&tmp, Some(&fixture("vina_2020-01-10_96px_mask.tif")),
+        &ExtractParams { dist_nodata_m: 0.0, ..Default::default() })
+        .expect("extracción sin filtro");
+
+    let n_pts = |s: &strandline_core::shoreline::Shoreline| -> usize {
+        s.lines.iter().map(|l| l.len()).sum()
+    };
+    assert!(
+        n_pts(&with_filter) < n_pts(&without),
+        "el filtro debe eliminar vértices junto al gap: {} vs {}",
+        n_pts(&with_filter),
+        n_pts(&without)
+    );
+
+    // Ningún vértice sobreviviente debe quedar cerca del gap. La tolerancia
+    // es de un píxel: la transformada de distancia se consulta en el píxel
+    // MÁS CERCANO al vértice, no en su posición fraccional, así que el corte
+    // efectivo puede quedar hasta media diagonal de píxel (~0.71 px) por
+    // debajo de los 30 m nominales. Es la misma aproximación que ya usa el
+    // buffer de nubes —donde a 300 m es inmaterial— y la diferencia que
+    // queda frente a la distancia exacta de CoastSat.
+    let gt = bands[0].transform().to_gdal();
+    let gap_x = gt[0] + (gap_col as f64) * gt[1];
+    let cell = gt[1].abs();
+    for line in &with_filter.lines {
+        for &(x, _) in line {
+            assert!(
+                (x - gap_x).abs() >= 30.0 - cell,
+                "vértice a {:.1} m del gap sobrevivió al filtro",
+                (x - gap_x).abs()
+            );
+        }
+    }
+    // y sin el filtro sí los hay (si no, el test no probaría nada)
+    let close_without = without
+        .lines
+        .iter()
+        .flatten()
+        .filter(|&&(x, _)| (x - gap_x).abs() < 30.0)
+        .count();
+    assert!(close_without > 0, "sin filtro debería haber vértices junto al gap");
+
+    let _ = std::fs::remove_file(&tmp);
+}

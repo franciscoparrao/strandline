@@ -9,7 +9,7 @@ use surtgis_core::io::read_geotiff_bands;
 use surtgis_core::raster::{GeoTransform, Raster};
 
 use crate::classify::{classify_pixels, Classification};
-use crate::cloud::{cloud_mask, distance_to_true_px, MaskKind};
+use crate::cloud::{cloud_mask, distance_to_true_px, nodata_mask, MaskKind};
 use crate::contour::find_contours;
 use crate::error::{Result, StrandlineError};
 use crate::index::{mndwi, nd_index};
@@ -54,6 +54,17 @@ pub struct ExtractParams {
     /// la polilínea (default 300, como `dist_clouds` de CoastSat).
     /// `0` = desactivado. Requiere máscara QA.
     pub dist_clouds_m: f64,
+    /// Buffer de exclusión alrededor de píxeles sin dato (m): los puntos de
+    /// shoreline a menos de esta distancia de un píxel nodata se eliminan,
+    /// igual que el buffer de nubes. Default 30, el valor que CoastSat
+    /// aplica fijo en `process_shoreline`; `0` = desactivado.
+    ///
+    /// Importa sobre todo en escenas ETM+ posteriores a la falla del
+    /// corrector de línea de barrido (2003), cuyas franjas de gap cruzan la
+    /// playa: sin este filtro sobreviven los vértices pegados al borde de
+    /// cada franja. El nodata se deriva de las bandas
+    /// ([`crate::cloud::nodata_mask`]), no de la máscara QA.
+    pub dist_nodata_m: f64,
     /// Tamaño mínimo (px) de un blob de nube para conservarlo en la máscara
     /// (default 40, como CoastSat): elimina las falsas nubes de swash/espuma
     /// de CFMASK que fragmentarían la costa. `0` = sin filtro.
@@ -87,6 +98,7 @@ impl Default for ExtractParams {
             coastsat_compat: false,
             min_beach_area_m2: 500.0,
             dist_clouds_m: 300.0,
+            dist_nodata_m: 30.0,
             cloud_min_size_px: 40,
             mask_kind: MaskKind::QaPixel,
             subpixel_refine: false,
@@ -445,6 +457,50 @@ pub fn extract_shoreline(
     };
     let dist_threshold_px = params.dist_clouds_m / cell;
 
+    // ídem para los píxeles sin dato: CoastSat los trata aparte del buffer
+    // de nubes (paso 3 de `process_shoreline`, 30 m fijos). La máscara sale
+    // de las bandas, no del QA, así que existe aunque no se pase máscara.
+    let nodata_dist_px = if params.dist_nodata_m > 0.0 {
+        nodata_mask(
+            &bands,
+            params.green_band - 1,
+            params.nir_band - 1,
+            params.swir1_band - 1,
+        )
+        .filter(|m| m.iter().any(|&v| v))
+        .map(|m| distance_to_true_px(&m))
+    } else {
+        None
+    };
+    let nodata_threshold_px = params.dist_nodata_m / cell;
+
+    // Un punto sobrevive si está lo bastante lejos de nubes Y de nodata;
+    // ambos son predicados por punto, así que aplicarlos juntos equivale a
+    // los pasos 2 y 3 secuenciales de CoastSat.
+    //
+    // La distancia se consulta en el píxel más cercano al vértice, no en su
+    // posición fraccional: CoastSat mide la distancia euclídea exacta desde
+    // el punto fraccional, así que el corte efectivo aquí puede quedar hasta
+    // media diagonal de píxel (~0.71 px) por debajo del nominal. A 300 m de
+    // buffer de nubes es inmaterial; con los 30 m del filtro de nodata es
+    // proporcionalmente mayor y queda como diferencia conocida frente a
+    // CoastSat (interpolar la EDT bilinealmente la cerraría).
+    let keep_point = |r: f64, col: f64| -> bool {
+        let at = |d: &ndarray::Array2<f32>| {
+            let (rows, cols) = d.dim();
+            let rr = (r.round() as isize).clamp(0, rows as isize - 1) as usize;
+            let cc = (col.round() as isize).clamp(0, cols as isize - 1) as usize;
+            d[[rr, cc]] as f64
+        };
+        cloud_dist_px
+            .as_ref()
+            .map_or(true, |d| at(d) >= dist_threshold_px)
+            && nodata_dist_px
+                .as_ref()
+                .map_or(true, |d| at(d) >= nodata_threshold_px)
+    };
+    let any_buffer = cloud_dist_px.is_some() || nodata_dist_px.is_some();
+
     // orden de CoastSat process_shoreline: filtro de largo primero, buffer
     // de nubes después (los puntos removidos parten la polilínea; los trozos
     // resultantes NO se re-filtran por largo, igual que CoastSat)
@@ -457,26 +513,22 @@ pub fn extract_shoreline(
         if line_length(&world) < params.min_length_m {
             continue;
         }
-        match &cloud_dist_px {
-            None => lines.push(world),
-            Some(dist) => {
-                let (rows, cols) = dist.dim();
-                let mut run: Vec<(f64, f64)> = Vec::new();
-                for (i, &(r, col)) in contour.iter().enumerate() {
-                    let rr = (r.round() as isize).clamp(0, rows as isize - 1) as usize;
-                    let cc = (col.round() as isize).clamp(0, cols as isize - 1) as usize;
-                    if (dist[[rr, cc]] as f64) >= dist_threshold_px {
-                        run.push(world[i]);
-                    } else {
-                        if run.len() >= 2 {
-                            lines.push(std::mem::take(&mut run));
-                        }
-                        run.clear();
+        if !any_buffer {
+            lines.push(world);
+        } else {
+            let mut run: Vec<(f64, f64)> = Vec::new();
+            for (i, &(r, col)) in contour.iter().enumerate() {
+                if keep_point(r, col) {
+                    run.push(world[i]);
+                } else {
+                    if run.len() >= 2 {
+                        lines.push(std::mem::take(&mut run));
                     }
+                    run.clear();
                 }
-                if run.len() >= 2 {
-                    lines.push(run);
-                }
+            }
+            if run.len() >= 2 {
+                lines.push(run);
             }
         }
     }

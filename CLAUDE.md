@@ -1261,3 +1261,41 @@ benchmark (software + accuracy vs CoastSat + velocidad).
   - Enlazada desde §2.3 (donde se describe el umbral balanceado) y desde
     Limitations, que ahora separa las 3 decisiones deliberadas del único
     pendiente. Paper compila limpio: 30 pág, sin refs/citas indefinidas.
+
+- **2026-08-06 (2)**: **Filtro de proximidad a nodata implementado** — la única
+  divergencia con CoastSat que estaba declarada como *limitación no
+  implementada* (no como decisión de diseño) queda cerrada.
+  - `cloud::nodata_mask` replica `im_nodata` de `SDS_preprocess.preprocess_single`:
+    cualquier banda no finita, **o** Green+NIR+SWIR1 exactamente cero *a la vez*
+    (la **conjunción**, no la disyunción — un 0 aislado en una banda es una
+    medición válida; los tres juntos son relleno de borde de escena o gap del
+    SLC). Nota de diseño: la `cloud_mask` de strandline sale solo de bits QA, o
+    sea ya equivale al `cloud_mask_adv` de CoastSat (nubes XOR nodata), así que
+    la máscara de nodata entra como capa separada sin tocar el buffer de nubes.
+  - `ExtractParams::dist_nodata_m` (default **30.0**, el valor que CoastSat
+    hardcodea; 0 = off) + flag `--dist-nodata` en `extract` y `baseline`. Ambos
+    buffers se aplican como conjunción en la misma pasada, lo que equivale a los
+    pasos 2 y 3 secuenciales de `process_shoreline`.
+  - **Diferencia numérica residual, documentada** (era el hallazgo L1 de la
+    auditoría, ahora relevante): la distancia se lee de la EDT muestreada en el
+    píxel MÁS CERCANO al vértice, mientras CoastSat mide la distancia exacta
+    desde la posición fraccional. El corte efectivo puede quedar hasta media
+    diagonal de píxel (~0.71 px) por debajo del nominal. A 300 m de buffer de
+    nubes es inmaterial; **a 30 m es proporcionalmente mayor** (a 15 m/px, un
+    vértice puede sobrevivir a ~23 m en vez de 30). Lo destapó el propio test
+    de integración, que primero escribí asumiendo exactitud. Cerrarlo requiere
+    muestreo bilineal de la EDT, que tocaría también el buffer de nubes (cuyo
+    resultado está validado a 0.20 m vs CoastSat) — no se hizo para no perturbar
+    una validación existente por un efecto de medio píxel.
+  - **Tests**: `nodata_mask` con los 4 casos de la definición (los tres ceros
+    juntos sí, un cero aislado NO, NaN e −inf en cualquier banda sí) + shapes
+    inconsistentes; e integración end-to-end punzando una franja de gap tipo
+    SLC-off sobre el fixture real y verificando que los vértices del borde
+    desaparecen y ninguno sobrevive dentro de la tolerancia de un píxel.
+  - **Goldens de paridad intactos**: el fixture no tiene nodata, así que el
+    filtro es no-op ahí. 101 tests (era 97), verdes en paralelo y single-thread,
+    clippy limpio. Se corrigió de paso un `is_none_or` que exigía Rust 1.82
+    cuando el workspace declara MSRV 1.75 (habría roto la compilación en la
+    versión mínima soportada).
+  - **Paper actualizado**: §4.2 pasa de "no implementado" a describir el filtro
+    y su diferencia numérica residual; Limitations ya no lo lista como pendiente.

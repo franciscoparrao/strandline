@@ -460,13 +460,22 @@ by a small sand sample, and the classifier-free mode is the appropriate choice.
 
 \emph{Proximity to nodata.} CoastSat discards shoreline vertices within a
 hard-coded 30~m of any nodata pixel, in addition to the configurable cloud
-buffer. strandline applies the cloud buffer but not the nodata rule: nodata is
-handled upstream, where the water index is undefined and the contour tracer skips
-the affected cells, which prevents contours \emph{inside} a gap but still admits
-vertices along its edge. This matters most for ETM+ scenes acquired after the
-2003 scan-line-corrector failure, whose gap stripes cross the beach, and we note
-it as a known limitation of the present version rather than a design choice
-(Sect.~\ref{sec:limitations}).
+buffer. strandline applies the same rule, with the threshold exposed as a
+parameter defaulting to 30~m; nodata is identified from the bands exactly as in
+the reference (any non-finite value, or Green, NIR and SWIR1 simultaneously
+zero, the last being the signature of scene-edge fill and of scan-line gaps).
+This matters most for ETM+ scenes acquired after the 2003 scan-line-corrector
+failure, whose gap stripes cross the beach: without it, the vertices hugging
+each stripe survive and feed the transect intersection.
+
+Both this filter and the cloud buffer share one small numerical difference from
+the reference: the distance is read from an exact Euclidean distance transform
+sampled at the pixel nearest the vertex, whereas CoastSat measures the distance
+from the fractional vertex position to each masked pixel directly. The effective
+cut-off can therefore fall up to half a pixel diagonal ($\approx0.71$~px) below
+the nominal one. At the 300~m cloud buffer this is immaterial; at 30~m it is
+proportionally larger, and bilinear sampling of the distance field would remove
+it.
 
 \subsection{Accuracy against CoastSat}
 Positional accuracy is measured as the agreement between a strandline shoreline
@@ -724,15 +733,14 @@ manual labelling and is left as future work; the field currently lacks a public
 one.
 
 A second group of limitations is the set of divergences from the reference
-implementation catalogued in Sect.~\ref{subsec:divergences}. Three of them are
-deliberate design choices we would make again --- deterministic class balancing
-instead of random subsampling, no placeholder value fed to the classifier, no
-implicit switch to a different thresholding algorithm --- but the fourth, the
-absence of CoastSat's 30~m nodata-proximity filter, is simply not yet
-implemented. It is inconsequential for scenes with a clean footprint and matters
-for ETM+ acquisitions after the scan-line-corrector failure, which our own
-archive-wide fetch now retrieves in volume; adding it is straightforward, since
-the exact distance transform used for the cloud buffer applies unchanged.
+implementation catalogued in Sect.~\ref{subsec:divergences}. They are deliberate
+design choices we would make again --- deterministic class balancing instead of
+random subsampling, no placeholder value fed to the classifier, no implicit
+switch to a different thresholding algorithm --- but each shifts the extraction
+slightly relative to CoastSat, and the thresholding domain in particular
+contributes to the residual disagreement we report. The one purely numerical
+gap, sampling the distance field at the nearest pixel rather than at the
+fractional vertex, is a half-pixel effect that bilinear sampling would close.
 
 Two further limits are physical rather than computational. Beach-slope estimation
 from the shoreline series is only identifiable where the tidal signal is large

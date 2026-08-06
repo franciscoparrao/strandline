@@ -148,6 +148,11 @@ enum Command {
         /// Buffer de exclusión alrededor de nubes (m); 0 = off.
         #[arg(long, default_value_t = 300.0)]
         dist_clouds: f64,
+        /// Buffer de exclusión alrededor de píxeles sin dato (m); 0 = off.
+        /// Default 30, el valor fijo de CoastSat. Importa en escenas ETM+
+        /// posteriores a la falla del SLC, cuyos gaps cruzan la playa.
+        #[arg(long, default_value_t = 30.0)]
+        dist_nodata: f64,
         /// Tamaño mínimo (px) de un blob de nube en la máscara; 0 = sin filtro.
         #[arg(long, default_value_t = 40)]
         cloud_min_size: usize,
@@ -313,6 +318,11 @@ enum Command {
         /// Buffer de exclusión alrededor de nubes (m); 0 = off.
         #[arg(long, default_value_t = 300.0)]
         dist_clouds: f64,
+        /// Buffer de exclusión alrededor de píxeles sin dato (m); 0 = off.
+        /// Default 30, el valor fijo de CoastSat. Importa en escenas ETM+
+        /// posteriores a la falla del SLC, cuyos gaps cruzan la playa.
+        #[arg(long, default_value_t = 30.0)]
+        dist_nodata: f64,
         /// Tipo de banda de máscara: qa (Landsat QA_PIXEL) | scl (Sentinel-2 SCL).
         #[arg(long, default_value = "qa")]
         mask_kind: String,
@@ -850,6 +860,7 @@ fn main() -> anyhow::Result<()> {
             coastsat_compat,
             min_beach_area,
             dist_clouds,
+            dist_nodata,
             cloud_min_size,
             mask_kind,
             subpixel_refine,
@@ -867,6 +878,7 @@ fn main() -> anyhow::Result<()> {
                 coastsat_compat,
                 min_beach_area_m2: min_beach_area,
                 dist_clouds_m: dist_clouds,
+                dist_nodata_m: dist_nodata,
                 cloud_min_size_px: cloud_min_size,
                 mask_kind: parse_mask_kind(&mask_kind)?,
                 subpixel_refine,
@@ -1132,6 +1144,7 @@ fn main() -> anyhow::Result<()> {
             classify,
             coastsat_compat,
             dist_clouds,
+            dist_nodata,
             mask_kind,
             subpixel_refine,
             output,
@@ -1147,6 +1160,7 @@ fn main() -> anyhow::Result<()> {
                 coastsat_compat,
                 min_beach_area_m2: 500.0,
                 dist_clouds_m: dist_clouds,
+                dist_nodata_m: dist_nodata,
                 cloud_min_size_px: 40,
                 mask_kind: parse_mask_kind(&mask_kind)?,
                 subpixel_refine: false, // el contorno crudo decide la selección; se refina solo la ganadora
