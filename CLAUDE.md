@@ -1188,14 +1188,10 @@ benchmark (software + accuracy vs CoastSat + velocidad).
     con los settings del estudio de referencia (4500 m²) el cociente es entero
     exacto a 15 y 30 m. Solo afecta al default propio del motor (500 m²) a
     15 m, que es el fixture de CI: golden actualizado a propósito (sand
-    354→352) con la justificación escrita en el test. **Quedan 3 divergencias
-    con CoastSat sin resolver** (NaN→`other` vs relleno 1e-9; falta el
-    fallback con <50 px de arena; falta el filtro de 30 m a nodata, relevante
-    ahora que `fetch` trae L7 SLC-off): decisión pendiente de replicarlas o
-    documentarlas como deliberadas en Methods. Y la diferencia estructural del
-    *reference buffer* (CoastSat umbraliza solo dentro del buffer de la
-    reference shoreline dilatado; strandline usa toda la escena) **debe ir a
-    Methods del paper** igual.
+    354→352) con la justificación escrita en el test. Las otras 3 divergencias
+    con CoastSat (NaN→`other` vs relleno 1e-9; sin fallback con <50 px de
+    arena; sin filtro de 30 m a nodata) **se resolvieron documentándolas**,
+    no replicándolas — ver adenda del 2026-08-06.
   - **M4 — STL usaba bins de 30.44 días, no meses calendario** (2026-08-03):
     `(frac·12).floor()` sobre el año decimal parte el año en 12 bins iguales,
     así que 2020-01-01 caía en "diciembre 2019" y 2020-03-01 compartía bin con
@@ -1236,3 +1232,32 @@ benchmark (software + accuracy vs CoastSat + velocidad).
     codifican modos de falla reales (meseta espuria, E5, heurísticas de
     baseline descartadas). Arquitectura unidireccional sin ciclos, 0 TODOs
     fósiles, dependencias todas en uso.
+
+- **2026-08-06**: **Las 4 divergencias con CoastSat documentadas en Methods del
+  paper** (commit `2f0271e`), cerrando el pendiente que dejó la auditoría.
+  Nueva subsección **§4.2 "Documented divergences from the reference
+  implementation"**, con el principio explícito de que *un port cuyo valor es
+  la fidelidad debe declarar dónde NO es idéntico*, y la aclaración de que
+  ninguna afecta transectos/tasas/QC (que reproducen las tablas exactas) — así
+  el lector puede **atribuir** los residuos de Results en vez de absorberlos.
+  - **Cada una re-verificada contra `SDS_shoreline.py` antes de escribirla** en
+    el manuscrito (no se citó nada solo desde el reporte de auditoría). Dos
+    resultaron más matizadas de lo reportado: (a) el reemplazo `NaN→1e-9` corre
+    ANTES del chequeo `vec_nan`, así que ese chequeo es **código inalcanzable**
+    en CoastSat — todo NaN se clasifica igual, solo se excluyen `inf` y nubes;
+    (b) el conteo del fallback de <50 px de arena es **dentro del buffer de
+    referencia**, no de la escena, o sea depende del mismo concepto que
+    strandline no tiene.
+  - **Framing usado** (mantener si se re-edita): las 3 primeras se presentan
+    como decisiones deliberadas CON su razón — dominio del umbral (la más
+    consecuente: se dice explícitamente que parte del residuo de Results se
+    origina ahí, no en la aritmética del contorno), no alimentar el
+    clasificador con un placeholder que nunca vio en entrenamiento, y no tener
+    un switch automático a otro algoritmo de umbral. La 4ª (filtro de 30 m a
+    nodata) se declara **como limitación no implementada, NO como decisión de
+    diseño** — es honesto y además es la única con trabajo pendiente real
+    (importa en ETM+ post-falla del SLC, que `fetch` ahora trae en volumen; el
+    fix es directo porque la EDT del buffer de nubes sirve igual).
+  - Enlazada desde §2.3 (donde se describe el umbral balanceado) y desde
+    Limitations, que ahora separa las 3 decisiones deliberadas del único
+    pendiente. Paper compila limpio: 30 pág, sin refs/citas indefinidas.
