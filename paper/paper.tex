@@ -567,53 +567,70 @@ shoreline-change envelope at Vi\~na ($\approx500$~m, dominated by multiple
 intersections rather than tide); its effect is seen in the per-transect rates,
 not in the envelope.
 
-\subsection{Transect geometry: fixed versus per-scene}\label{subsec:geom}
-Both major satellite-derived-shoreline lineages compute change rates against a
-\emph{fixed} transect geometry generated once from a historical reference line
---- CoastSat and the large-scale operational products cast fixed shore-normal
+\subsection{Where the sub-pixel fit is sampled}\label{subsec:geom}
+Both major satellite-derived-shoreline lineages measure change against a
+\emph{fixed} geometry generated once from a historical reference line ---
+CoastSat and the large-scale operational products cast fixed shore-normal
 transects, and the SHOREX/SAET family deliberately reuses a single approximate
 reference line for a whole image set for efficiency
-\citep{pardopascual2018shorex,palomarvazquez2023saet}. On a straight, stable
-coast this is well justified; on curved or rapidly changing coasts, however, a
-transect fixed to a past shoreline no longer approximates the local shore-normal
-of a given scene, and the cross-shore distance it returns is biased by that
-misalignment. This geometric error is distinct from the spectral and tidal error
-budgets usually reported, and to our knowledge has not been isolated before.
+\citep{pardopascual2018shorex,palomarvazquez2023saet}. For \emph{rates} this is
+not merely conventional but necessary: a change rate is defined along a transect
+that stays put, so the measurement geometry has to be stable across the series.
+The question we can ask is therefore not whether to fix the transects, but
+whether that same fixed geometry should also be used to \emph{refine} the
+shoreline position within each scene.
 
-We quantify it by comparing three geometries against the reference cross-shore
-distances over the surface-reflectance scenes of all six sites (Table~\ref{tab:geom}):
-the fixed-transect baseline (\texttt{intersect} against transects from the
-historical reference), the same transects seeded into a per-transect profile fit
-(\texttt{profile}), and transects regenerated per scene shore-normal to that
-scene's own contour (\texttt{extract\,-\,\,subpixel-refine}). Regenerating the
-geometry per scene gives the lowest error at every quantile and the widest
-coverage --- a median of $11.8$~m against $14.3$~m for the fixed baseline, an
-$\approx18\%$ reduction --- whereas seeding the \emph{fixed} transects into a
-finer fit does not help and slightly hurts. The per-scene advantage is largest
-exactly where the argument predicts: at the complex sites (the terraces of
-Coquimbo, the estuaries of Valdivia and Constituci\'on, the macro-tidal bays of
-Chilo\'e), while at the straight, stable coasts of Vi\~na and Arica the fixed and
-seeded geometries are competitive --- the same regime in which the fixed-line
-SHOREX design is validated. We therefore read this not as a claim that per-scene
-transects are novel in themselves, but as isolating and quantifying an error that
-fixed geometry carries silently, and showing where it matters.
+The two roles come apart. A transect anchored to a past shoreline still
+approximates the local shore-normal only as well as the coast has stayed put; on
+a curved or dynamic coast it can meet the instantaneous shoreline at a
+substantial angle. That is tolerable for a strip-based intersection, which only
+needs to bracket the crossing, but not for a profile fit, whose window must
+straddle the land--water edge along the direction of steepest change.
+
+Table~\ref{tab:geom} separates the two roles over the surface-reflectance scenes
+of all six sites. All three rows are measured along the \emph{same} fixed
+transects; what differs is how the shoreline position is refined within each
+scene: not at all (the raw marching-squares contour), by fitting a profile
+sampled along those same fixed transects, or by refining the contour along short
+perpendiculars generated from the scene's own contour. Refining on local normals
+gives the lowest error at every quantile and the widest coverage --- a median of
+$11.8$~m against $14.3$~m, an $\approx18\%$ reduction. The instructive row is the
+middle one: fitting a profile along the fixed transects is \emph{worse than not
+refining at all} ($15.2$~m), and it loses at four of the six sites, the
+exceptions being the straight, stable coasts of Vi\~na del Mar and Arica --- the
+same regime in which the fixed-line SHOREX design is validated. A finer estimator
+sampled along a misaligned direction is not an improvement; it is a more precise
+answer to the wrong question.
+
+We read this as evidence that the geometry used to \emph{extract} a shoreline
+and the geometry used to \emph{measure} its change are separate design choices
+that the standard pipelines conflate, and that only the second one has to be
+fixed. The evidence is indirect: it identifies the misalignment through its
+effect on a fitting window rather than measuring the angle between transect and
+instantaneous shore-normal directly. Measuring that angle on the reference
+dataset is the natural next test, and we note that it is harder than it looks ---
+estimating a local shore-normal from a marching-squares contour is itself
+uncertain by several degrees, comparable to the effect being sought, so it
+requires an estimator validated against a geometry whose answer is known in
+advance.
 
 \begin{table}[t]
   \centering
   \small
-  \caption{Shoreline position error (m) of three transect geometries against the
-  reference cross-shore distances, pooled over surface-reflectance scenes at all
-  six sites. Lower is better; $n$ is the number of transect$\times$scene
-  measurements. Regenerating transect geometry per scene wins at every quantile
-  with the widest coverage.}
+  \caption{Shoreline position error (m) of three extraction strategies against
+  the reference cross-shore distances, pooled over surface-reflectance scenes at
+  all six sites. \emph{All three are measured along the same fixed transects},
+  generated once per site from the historical reference shoreline; what differs
+  is how the shoreline position is refined. Lower is better; $n$ is the number
+  of transect$\times$scene measurements.}
   \label{tab:geom}
   \begin{tabular}{@{}lrrrr@{}}
     \toprule
-    Transect geometry & Median & Mean & P90 & $n$ \\
+    Shoreline refinement & Median & Mean & P90 & $n$ \\
     \midrule
-    Fixed transects (baseline)      & 14.29 & 57.32 & 120.39 & 3112 \\
-    Fixed, seeded profile fit       & 15.15 & 53.92 & 90.52 & 3523 \\
-    Per-scene regeneration          & \textbf{11.78} & \textbf{48.46} & \textbf{81.04} & 4325 \\
+    None (raw contour)                    & 14.29 & 57.32 & 120.39 & 3112 \\
+    Profile fit along the fixed transects & 15.15 & 53.92 & 90.52 & 3523 \\
+    Contour refined on local normals      & \textbf{11.78} & \textbf{48.46} & \textbf{81.04} & 4325 \\
     \bottomrule
   \end{tabular}
 \end{table}
