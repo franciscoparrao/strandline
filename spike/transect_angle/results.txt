@@ -1,0 +1,22 @@
+VINA_DEL_MAR        3.1°     36.2° |      38.9°      72.5° |   35.8°   28.5%
+COQUIMBO            0.5°     38.6° |      32.6°      74.8° |   32.1°   18.7%
+CONSTITUCION        3.5°     30.0° |      38.6°      72.2° |   35.1°   28.0%
+VALDIVIA            2.9°     33.5° |      38.5°      75.1° |   35.6°   27.8%
+GLOBAL              2.4°     34.7° |      35.5°      74.7° |   33.1°   22.9%   n_nula=1088 n_señal=27650  (Mann-Whitney p=0.00e+00)
+
+
+==============================================================================
+DESCOMPOSICIÓN: ¿la desalineación es PERSISTENTE por transecto o fluctúa
+entre fechas? Solo la persistente sesga la TASA (una inflación que cambia
+al azar entre fechas agrega varianza, pero su offset no altera la pendiente).
+==============================================================================
+sitio           n_tr  θ persist   θ p90 |  fluct (MAD) |  infl tasa
+VINA_DEL_MAR      16      41.8°   69.9° |         6.3° |      34.3%
+COQUIMBO         327      38.6°   57.4° |        13.1° |      28.0%
+CONSTITUCION      22      40.9°   51.5° |        13.1° |      32.4%
+VALDIVIA         161      46.5°   63.2° |        10.6° |      45.4%
+GLOBAL           526      40.3°   60.9° |        12.9° |      31.1%
+
+Inflación de tasa implicada por la componente PERSISTENTE 1/cos(θ_persist):
+  mediana 31.1%   p75 60.3%   p90 105.4%
+Fracción de transectos con θ_persist > 20°: 85.2%  > 30°: 75.7%

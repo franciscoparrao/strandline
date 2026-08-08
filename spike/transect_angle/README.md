@@ -1,43 +1,75 @@
-# Medición directa de la desalineación shore-normal — INCONCLUSA
+# Desalineación shore-normal de los transectos fijos — medición directa
 
-Intento de medir el ángulo θ entre cada transecto fijo y la normal local de la
-shoreline instantánea, usando los transectos y las shorelines publicadas del
-estudio de referencia (sin re-extraer nada, sin confound SR-vs-TOA).
+Mide el ángulo θ entre cada transecto **fijo** del estudio de referencia y la
+normal local de la shoreline instantánea, usando los transectos y shorelines
+**publicados** (sin re-extraer nada, sin confound SR-vs-TOA).
 
-**Motivación**: §5.4 del paper sostiene la desalineación de forma *indirecta*
-(por su efecto sobre una ventana de ajuste). Medir θ directamente daría el
-claim fuerte: la distancia medida a lo largo de un transecto desalineado θ es
-la perpendicular verdadera dividida por cos(θ), y como 1/cos(θ) ≥ 1 siempre,
-**cualquier** desalineación infla — incluso una simétrica y aleatoria produce
-sesgo positivo sistemático en el chainage y en la tasa.
+## Por qué importa
 
-## Estado: no validado. NO usar sus números.
+La distancia medida a lo largo de un transecto desalineado un ángulo θ respecto
+de la normal es la perpendicular verdadera dividida por `cos(θ)`. Si θ es
+**persistente** para ese transecto, la tasa de cambio queda inflada por el mismo
+factor: un retroceso real de Δ perpendicular se mide como Δ/cos(θ).
 
-El script incluye un **control**: contra la propia línea de referencia desde la
-que se generaron los transectos, θ debe dar ~0° por construcción. No pasa.
+Como `1/cos(θ) ≥ 1` siempre, el error es **de un solo signo**: sólo puede
+inflar, nunca reducir.
 
-| versión | método | control | veredicto |
-|---|---|---|---|
-| v1 | tangente por PCA de bola de radio fijo | 2% de cobertura | artefacto de selección: la bola mezcla contornos disjuntos y con vértices cada 184 m casi no junta puntos |
-| v2 | vértices consecutivos, gap fijo 100 m | mediana 5-40° | el gap despedaza la línea de referencia (espaciado 184 m); cruce exigido dentro de `[0,L]` cuando la semántica real es recta infinita |
-| v3 (este) | cruce exacto segmento-segmento, gap adaptativo | mediana 4.5-12.2°, p90 40-55° | cobertura ~100%, pero el estimador tiene piso de error del mismo orden que la señal buscada |
+## Resultado (`results.txt`)
 
-## Qué haría falta
+Control/nula: 0.5–4.2° · Señal: 30–35° · estable en ventanas de ±60 a ±200 m
+(Mann-Whitney p≈0).
 
-El problema de fondo: estimar la normal local de un contorno de marching
-squares es incierto en varios grados (el contorno es escalonado a escala de
-píxel), comparable al efecto que se busca. Haría falta un estimador de tangente
-que **pase el control** — p. ej. replicar exactamente el mismo estimador
-(diferencias centrales sobre la línea re-muestreada) con el que se generaron los
-transectos, y recién entonces aplicarlo a las shorelines instantáneas.
+Descomposición persistente vs fluctuante (ventana ±100 m, transectos con ≥10
+fechas):
 
-Mientras el control no dé ~0°, cualquier θ que salga de aquí es indistinguible
-del error del propio método.
+| sitio | n transectos | θ persistente | fluctuación (MAD) | inflación de tasa |
+|---|---|---|---|---|
+| Viña del Mar | 16 | 41.8° | 6.3° | 34.3% |
+| Coquimbo | 327 | 38.6° | 13.1° | 28.0% |
+| Constitución | 22 | 40.9° | 13.1° | 32.4% |
+| Valdivia | 161 | 46.5° | 10.6° | 45.4% |
+| **global** | **526** | **40.3°** | **12.9°** | **31.1%** |
+
+85% de los transectos tienen θ persistente > 20°; 76% > 30°.
+
+## Por qué el control es el punto clave
+
+θ = arcsin|u·t| es una cantidad **rectificada**: el ruido del estimador infla la
+mediana medida aunque el θ verdadero sea 0. Y estimar la normal de un contorno
+de marching squares es incierto en varios grados porque el contorno está
+escalonado a escala de píxel. Por eso no basta con medir: hay que comparar
+contra una **nula** construida con el mismo estimador sobre una línea cuyo θ
+verdadero es 0 por construcción — la línea de referencia desde la que se
+generaron los transectos — re-muestreada a la misma densidad de vértices (15 m)
+y cuantizada a la grilla de píxel para imitar el escalonado.
+
+Tres versiones previas fallaron su propio control y sus números se descartaron:
+
+| versión | fallo |
+|---|---|
+| v1 | tangente por PCA de bola de radio fijo: mezclaba contornos disjuntos; 2% de cobertura |
+| v2 | gap fijo de 100 m despedazaba la línea de referencia (vértices cada 184 m); cruce exigido dentro de `[0,L]` cuando la semántica real es recta infinita |
+| v3 | cruce exacto y gap adaptativo (cobertura ~100%), pero sin nula justa el piso de error era del orden de la señal |
+
+## Limitaciones a declarar si esto va al paper
+
+1. **n de transectos desigual**: el global está dominado por Coquimbo (327) y
+   Valdivia (161); Viña (16) y Constitución (22) son delgados por cobertura.
+2. **La nula es una línea suave.** La rugosidad morfológica real de la costa a
+   escala 50–200 m (cúspides, barras, ensenadas de rip) se cuenta como
+   desalineación. Es defendible —esa rugosidad *sí* desalinea el transecto—
+   pero conviene decirlo.
+3. La traducción θ → inflación de tasa supone que la costa retrocede
+   aproximadamente paralela a sí misma y que θ se mantiene; es justamente lo
+   que mide la componente persistente, pero es un supuesto explícito.
+4. **Implicación incómoda**: si el efecto es real, las tasas publicadas con
+   transectos fijos —incluidas las del estudio de referencia— estarían infladas
+   en ese orden. Verificar antes de afirmarlo en el paper.
 
 ## Uso
 
     python3 measure_transect_angle.py
 
 Lee los transectos de `{SITE}_analysis.pkl` y las shorelines de
-`/mnt/kingston/{SITE}/{SITE}_output.pkl`. Si el control falla, no imprime la
+`/mnt/kingston/{SITE}/{SITE}_output.pkl`. Si el control no pasa, no imprime la
 medición.
