@@ -51,6 +51,33 @@ Tres versiones previas fallaron su propio control y sus números se descartaron:
 | v2 | gap fijo de 100 m despedazaba la línea de referencia (vértices cada 184 m); cruce exigido dentro de `[0,L]` cuando la semántica real es recta infinita |
 | v3 | cruce exacto y gap adaptativo (cobertura ~100%), pero sin nula justa el piso de error era del orden de la señal |
 
+## ¿Es geometría real o artefacto del estimador? (`verify_results.txt`)
+
+Aplicar la corrección `cos(θ)` a las tasas es **aritméticamente forzado** y no
+prueba nada. La pregunta que sí se puede responder es si el ángulo es real. Dos
+discriminantes independientes, ambos positivos:
+
+**1. Coherencia espacial.** Los transectos están ordenados a lo largo de la
+costa (~100 m). Si θ_persist es orientación real, vecinos correlacionan; si es
+ruido del estimador, no.
+
+| sitio | n | r lag1 | r lag2 | r lag5 | r lag20 | nula permutada |
+|---|---|---|---|---|---|---|
+| Coquimbo | 319 | **0.652** | 0.556 | 0.443 | −0.046 | [−0.106, +0.103] |
+| Valdivia | 162 | **0.503** | 0.267 | 0.356 | 0.070 | [−0.170, +0.124] |
+
+Muy fuera de la nula, y **decae con la distancia** hasta ~0 a lag 20 (≈2 km) —
+exactamente la firma de orientación costera real. Ruido puro daría r≈0 en todos
+los lags.
+
+**2. Estabilidad temporal.** θ_persist calculado en dos mitades temporales
+independientes: r = **0.698** (Coquimbo), **0.921** (Valdivia). El ruido del
+estimador no se reproduce entre subconjuntos de fechas disjuntos.
+
+**3. Consecuencia aritmética** (no evidencia independiente, pero ya significativa
+dado 1 y 2): proyectar el LRR publicado a la normal local lo reduce 21.7% a
+38.7% según el sitio.
+
 ## Limitaciones a declarar si esto va al paper
 
 1. **n de transectos desigual**: el global está dominado por Coquimbo (327) y
@@ -62,9 +89,23 @@ Tres versiones previas fallaron su propio control y sus números se descartaron:
 3. La traducción θ → inflación de tasa supone que la costa retrocede
    aproximadamente paralela a sí misma y que θ se mantiene; es justamente lo
    que mide la componente persistente, pero es un supuesto explícito.
-4. **Implicación incómoda**: si el efecto es real, las tasas publicadas con
-   transectos fijos —incluidas las del estudio de referencia— estarían infladas
-   en ese orden. Verificar antes de afirmarlo en el paper.
+4. **Solo 2 de 4 sitios sostienen los tests discriminantes**: Viña (17) y
+   Constitución (23) tienen muy pocos transectos con ≥10 fechas. El resultado
+   descansa en Coquimbo y Valdivia.
+5. **La caveat interpretativa de fondo — cuál es la dirección "correcta"**. Que
+   el transecto esté oblicuo a la orientación local a escala de ~100 m está
+   medido y es sólido. Que eso *infle la tasa* supone además que el
+   desplazamiento verdadero es perpendicular a esa orientación local. Si la
+   costa retrocede paralela a sí misma a escala **regional**, medir a lo largo
+   de un transecto normal a la tendencia regional sería correcto y la
+   "corrección" estaría de más. A favor de la interpretación local: el ángulo
+   se mantiene al ensanchar la ventana del estimador de ±60 a ±200 m (30.4° →
+   35.5°), o sea no es un efecto de cúspides de pequeña escala; y el transporte
+   transversal que gobierna el retroceso actúa perpendicular a la costa local.
+   Aun así es un supuesto explícito, no una medición.
+6. **Implicación incómoda**: si la interpretación es correcta, las tasas
+   publicadas con transectos fijos —incluidas las del estudio de referencia—
+   estarían infladas en ese orden.
 
 ## Uso
 

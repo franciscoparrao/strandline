@@ -1,0 +1,21 @@
+TEST 1 — COHERENCIA ESPACIAL de θ_persist entre transectos vecinos
+(si es geometría real, vecinos correlacionan; si es ruido, no)
+
+sitio             n   r lag1   r lag2   r lag5  r lag20 |   nula permutada
+VINA_DEL_MAR   solo 17 transectos con ≥10 fechas — omitido
+COQUIMBO        319    0.652    0.556    0.443   -0.046 | [-0.106, +0.103]
+CONSTITUCION   solo 23 transectos con ≥10 fechas — omitido
+VALDIVIA        162    0.503    0.267    0.356    0.070 | [-0.170, +0.124]
+
+TEST 2 — ESTABILIDAD entre dos mitades temporales independientes
+sitio             n  r(mitad1, mitad2)
+COQUIMBO        319              0.698
+VALDIVIA        162              0.921
+
+TEST 3 — consecuencia ARITMÉTICA sobre el LRR publicado (no es evidencia
+independiente: si θ es persistente, la tasa baja por cos(θ) por construcción)
+sitio             n  |LRR| pub  |LRR| proy  reducción
+VINA_DEL_MAR     17     0.399       0.244       38.7%
+COQUIMBO        156     0.405       0.317       21.7%
+CONSTITUCION     23     5.761       4.464       22.5%
+VALDIVIA        160     2.435       1.654       32.1%
