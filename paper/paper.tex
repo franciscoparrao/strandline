@@ -46,10 +46,16 @@ scenes the engine reproduces the CoastSat shoreline to a median of $0.2$--$0.3$~
 while the transect-intersection step runs about $197\times$ faster than the
 vectorised Python reference and the whole tool installs in one command. Across a
 six-site benchmark spanning $24^\circ$ of latitude along the coast of Chile we
-also report two findings with deliberately bounded claims: fixed transect geometry
-carries a silent shore-normal misalignment error that regenerating geometry per
-scene reduces by $\approx18\%$ on complex coasts, and inter-sensor precision ---
-which weighted change rates depend on --- is real but site dependent and must be
+also report two findings with deliberately bounded claims. First, the geometry
+along which a shoreline is sampled matters and is routinely conflated with the
+geometry along which its change is measured: refining the contour on locally
+derived normals lowers the error by $\approx$18\% against a fixed-transect
+baseline, and measured directly on the published dataset, fixed transects meet
+the instantaneous shoreline at a persistent median angle of $40^\circ$ ---
+coastal geometry rather than estimator noise, by tests of spatial coherence and
+temporal stability --- which, under an assumption we state explicitly, would
+inflate change rates by tens of percent. Second, inter-sensor precision, on
+which weighted change rates depend, is real but site dependent and must be
 calibrated and validated per site. strandline removes the dependency and
 performance barriers to satellite-derived-shoreline analysis at scale, and is
 released open source with a citable archive.
@@ -60,7 +66,7 @@ released open source with a citable archive.
 \item Native harmonic tidal synthesis matches pyTMD to $\sim$1\,mm, no dependency chain
 \item Vectorised transect intersection runs $\sim$197$\times$ faster than the Python reference
 \item Median shoreline agreement with CoastSat $\sim$0.2\,m across six sites in Chile
-\item Per-scene transect geometry isolates and reduces fixed-transect misalignment error
+\item Fixed transects sit a persistent $40^\circ$ from the local shore-normal, inflating rates
 \end{highlights}
 
 \begin{keyword}
@@ -135,10 +141,11 @@ contributes:
   \item a vectorised, parallel transect-intersection and DSAS change-rate stage
   that reproduces the reference exactly while running roughly two orders of
   magnitude faster (Sect.~\ref{sec:results});
-  \item the isolation and quantification of a geometric error --- the shore-normal
-  misalignment of fixed transects --- that both major tool lineages carry silently,
-  and evidence that regenerating transect geometry per scene reduces it on complex
-  coasts (Sect.~\ref{subsec:geom});
+  \item the isolation and direct measurement of a geometric error that both major
+  tool lineages carry silently --- fixed transects meet the instantaneous
+  shoreline at a persistent median angle of $40^\circ$, which under a stated
+  assumption inflates change rates by $\approx$30\%
+  (Sects.~\ref{subsec:geom}--\ref{subsec:angle});
   \item a six-site benchmark spanning $24^\circ$ of latitude along the coast of
   Chile, comparing accuracy, speed and installation footprint against CoastSat
   (Sects.~\ref{sec:data}--\ref{sec:results}).
@@ -605,14 +612,10 @@ answer to the wrong question.
 We read this as evidence that the geometry used to \emph{extract} a shoreline
 and the geometry used to \emph{measure} its change are separate design choices
 that the standard pipelines conflate, and that only the second one has to be
-fixed. The evidence is indirect: it identifies the misalignment through its
-effect on a fitting window rather than measuring the angle between transect and
-instantaneous shore-normal directly. Measuring that angle on the reference
-dataset is the natural next test, and we note that it is harder than it looks ---
-estimating a local shore-normal from a marching-squares contour is itself
-uncertain by several degrees, comparable to the effect being sought, so it
-requires an estimator validated against a geometry whose answer is known in
-advance.
+fixed. The evidence so far is indirect: it identifies the misalignment through
+its effect on a fitting window rather than measuring the angle between transect
+and instantaneous shore-normal. Sect.~\ref{subsec:angle} measures that angle
+directly.
 
 \begin{table}[t]
   \centering
@@ -634,6 +637,111 @@ advance.
     \bottomrule
   \end{tabular}
 \end{table}
+
+\subsection{How far the fixed transects are from shore-normal}
+\label{subsec:angle}
+The previous section infers misalignment from its consequences. Here we measure
+it, on the reference study's \emph{own} published transects and CoastSat
+shorelines --- nothing is re-extracted, and no comparison is made across
+products, so the quantity is pure geometry.
+
+The measurement matters because it is one-signed. A distance measured along a
+transect that meets the shoreline at an angle $\theta$ from its local normal is
+the true perpendicular distance divided by $\cos\theta$. If $\theta$ persists
+for a given transect, the change rate inherits the same factor: a real
+perpendicular retreat $\Delta$ registers as $\Delta/\cos\theta$. Because
+$1/\cos\theta \ge 1$ always, misalignment can only inflate a rate, never deflate
+it, and even a symmetric random misalignment produces a positive bias.
+
+Estimating $\theta$ is less straightforward than it appears. The local
+shore-normal has to be read off a marching-squares contour that is stepped at
+pixel scale, so the estimator carries an error of several degrees --- comparable
+to the effect sought. Worse, $\theta = \arcsin|\hat{u}\cdot\hat{t}|$ is a
+\emph{rectified} quantity, so estimator noise inflates the measured median even
+when the true angle is zero. A low control value is therefore not enough; what
+is needed is a null distribution. We build one by applying the identical
+estimator to the reference shoreline from which the transects were generated ---
+where the true angle is zero by construction --- resampled to the same vertex
+density as the instantaneous contours and quantised onto the pixel grid to
+reproduce their stepped structure. The signal is the excess over that null.
+
+Against a null of $0.5$--$4.2^\circ$, the measured angle is $30$--$35^\circ$,
+stable as the estimator window widens from $\pm60$ to $\pm200$~m and separated
+from the null at $p\approx0$ (Mann--Whitney). Only the part of the misalignment
+that persists for a given transect can bias its rate --- an angle that varies
+randomly between dates adds variance but leaves the fitted slope alone --- so we
+decompose the two by taking, for each transect, the median angle across dates
+and the spread about it (Table~\ref{tab:angle}). The persistent component has a
+median of $40.3^\circ$, which corresponds to a rate inflation of $31\%$; $85\%$
+of transects exceed $20^\circ$.
+
+\begin{table}[t]
+  \centering
+  \small
+  \caption{Misalignment between the reference study's fixed transects and the
+  local shore-normal of the instantaneous shoreline. $\theta_\mathrm{pers}$ is
+  the per-transect median across dates (the component that can bias a rate);
+  the fluctuating component is its median absolute deviation. Rate inflation is
+  $1/\cos\theta_\mathrm{pers}$. $r_\mathrm{space}$ is the correlation of
+  $\theta_\mathrm{pers}$ between adjacent transects ($\approx$100~m apart) and
+  $r_\mathrm{time}$ its correlation between two disjoint halves of the record;
+  both are reported only where enough transects carry $\ge$10 dates.}
+  \label{tab:angle}
+  \begin{tabular}{@{}lrrrrrr@{}}
+    \toprule
+    Site & $n$ & $\theta_\mathrm{pers}$ & fluct. & inflation & $r_\mathrm{space}$ & $r_\mathrm{time}$ \\
+    \midrule
+    Vi\~na del Mar & 16  & 41.8$^\circ$ & 6.3$^\circ$  & 34\% & --- & --- \\
+    Coquimbo       & 327 & 38.6$^\circ$ & 13.1$^\circ$ & 28\% & 0.65 & 0.70 \\
+    Constituci\'on & 22  & 40.9$^\circ$ & 13.1$^\circ$ & 32\% & --- & --- \\
+    Valdivia       & 161 & 46.5$^\circ$ & 10.6$^\circ$ & 45\% & 0.50 & 0.92 \\
+    \midrule
+    All            & 526 & \textbf{40.3}$^\circ$ & 12.9$^\circ$ & \textbf{31\%} & & \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+A number this large invites the suspicion that it is an artefact of the
+estimator rather than a property of the coast, and the obvious check --- applying
+the $\cos\theta$ correction to the rates --- settles nothing, since a persistent
+angle reduces a rate by that factor arithmetically. Two independent tests
+discriminate. First, spatial coherence: transects are ordered along the coast at
+$\approx$100~m spacing, so a real orientation should be shared by neighbours
+while estimator noise should not. Adjacent transects correlate at $r=0.65$
+(Coquimbo, $n=319$) and $r=0.50$ (Valdivia, $n=162$) against permutation nulls
+of $\pm0.11$ and $\pm0.13$, and the correlation decays to zero by a lag of
+$\approx$2~km --- the signature of coastal orientation, whereas noise would give
+$r\approx0$ at every lag. Second, temporal stability: computed on two disjoint
+halves of the record, the per-transect angles agree at $r=0.70$ and $r=0.92$.
+Estimator noise does not reproduce itself across independent subsets of dates.
+Projecting the published rates onto the local normal would reduce their
+magnitude by $22$--$39\%$ depending on the site.
+
+\paragraph{What is measured and what is assumed.} The obliquity itself is
+measured, and the two tests above establish that it is coastal geometry rather
+than estimator noise. That it \emph{inflates a rate} is an additional
+assumption: it requires the true shoreline displacement to be perpendicular to
+the local orientation sampled at the $\approx$100--400~m scale of our estimator,
+rather than to the regional trend the baseline follows. If a coast retreats
+parallel to itself at the regional scale, a transect normal to that regional
+trend is the correct measurement direction and no correction is warranted. Two
+considerations favour the local reading --- the angle does not diminish as the
+estimator window widens from $\pm60$ to $\pm200$~m ($30.4^\circ$ to
+$35.5^\circ$), so it is not an artefact of small-scale cusps, and the
+cross-shore transport that drives retreat acts normal to the local shoreline ---
+but neither settles the question, and we present the inflation as a conditional
+consequence rather than a measured one. We also note that the discriminating
+tests rest on two of the four sites: Viña del Mar and Constituci\'on retain too
+few transects with sufficient temporal coverage to support them.
+
+Under the local reading, the implication extends beyond this engine. Change
+rates computed on fixed transects, including those of the reference study
+itself, would be inflated by tens of percent, with the largest effect on the
+most sharply curved coasts --- exactly where erosion assessments tend to matter
+most. We regard this as a hypothesis that the present data support but do not
+close, and as the strongest argument we can offer for treating the measurement
+geometry of a shoreline-change study as a quantity to be reported and justified
+rather than assumed.
 
 \subsection{Per-satellite precision and weighting of rates}
 The weighted regression rate (WLR) needs a weight per observation, conventionally
@@ -749,7 +857,22 @@ not adopt it. A properly retrained surface-reflectance classifier would need
 manual labelling and is left as future work; the field currently lacks a public
 one.
 
-A second group of limitations is the set of divergences from the reference
+The transect-misalignment result of Sect.~\ref{subsec:angle} carries its own
+limits, and they are worth restating because the result is the most consequential
+one we report. The obliquity is measured and survives two discriminating tests,
+but its translation into a rate bias rests on the assumption that shoreline
+displacement is perpendicular to the local rather than the regional orientation;
+that assumption is argued, not demonstrated. The discriminating tests rest on two
+of six sites, the two with enough transects carrying long records. And the
+implication --- that change rates computed on fixed transects, including those of
+the study we validate against, are inflated by tens of percent --- is large enough
+that it should be tested against independent survey data before it is acted on.
+What we would defend without qualification is the narrower statement: the angle
+between a fixed transect and the shoreline it measures is a real, spatially
+coherent, temporally stable quantity that shoreline-change studies do not
+currently report.
+
+A further group of limitations is the set of divergences from the reference
 implementation catalogued in Sect.~\ref{subsec:divergences}. They are deliberate
 design choices we would make again --- deterministic class balancing instead of
 random subsampling, no placeholder value fed to the classifier, no implicit
