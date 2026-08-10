@@ -6,6 +6,7 @@
 \usepackage{lineno}
 \usepackage{hyperref}
 \usepackage{graphicx}
+\usepackage{placeins}
 \usepackage{tikz}
 \usetikzlibrary{arrows.meta, positioning, fit, backgrounds}
 
@@ -671,9 +672,28 @@ from the null at $p\approx0$ (Mann--Whitney). Only the part of the misalignment
 that persists for a given transect can bias its rate --- an angle that varies
 randomly between dates adds variance but leaves the fitted slope alone --- so we
 decompose the two by taking, for each transect, the median angle across dates
-and the spread about it (Table~\ref{tab:angle}). The persistent component has a
-median of $40.3^\circ$, which corresponds to a rate inflation of $31\%$; $85\%$
-of transects exceed $20^\circ$.
+and the spread about it (Fig.~\ref{fig:angle}a, Table~\ref{tab:angle}). The
+persistent component has a median of $39.9^\circ$, which corresponds to a rate
+inflation of $30\%$; $86\%$ of transects exceed $20^\circ$ and $75\%$ exceed
+$30^\circ$.
+
+\begin{figure}[!t]
+  \centering
+  \includegraphics[width=\linewidth]{figures/transect_angle.pdf}
+  \caption{Misalignment between the reference study's fixed transects and the
+  local shore-normal of the instantaneous shoreline. (a) Distribution of the
+  persistent per-transect angle $\theta_\mathrm{pers}$, pooled over the four
+  sites, against the null obtained by applying the same estimator to a geometry
+  whose true angle is zero; the sites are pooled here because two of them retain
+  too few transects for a per-site density to be meaningful. (b) Correlation of
+  $\theta_\mathrm{pers}$ between transects separated along the coast, with the
+  95\% band of a permutation null: real coastal orientation is shared by
+  neighbours and decays with distance, whereas estimator noise would sit inside
+  the band at every separation. (c) The same angles computed on two disjoint
+  halves of the record. Panels (b) and (c) are shown for the two sites with
+  enough transects carrying long records.}
+  \label{fig:angle}
+\end{figure}
 
 \begin{table}[t]
   \centering
@@ -691,12 +711,12 @@ of transects exceed $20^\circ$.
     \toprule
     Site & $n$ & $\theta_\mathrm{pers}$ & fluct. & inflation & $r_\mathrm{space}$ & $r_\mathrm{time}$ \\
     \midrule
-    Vi\~na del Mar & 16  & 41.8$^\circ$ & 6.3$^\circ$  & 34\% & --- & --- \\
-    Coquimbo       & 327 & 38.6$^\circ$ & 13.1$^\circ$ & 28\% & 0.65 & 0.70 \\
-    Constituci\'on & 22  & 40.9$^\circ$ & 13.1$^\circ$ & 32\% & --- & --- \\
-    Valdivia       & 161 & 46.5$^\circ$ & 10.6$^\circ$ & 45\% & 0.50 & 0.92 \\
+    Vi\~na del Mar & 17  & 44.8$^\circ$ & 7.2$^\circ$  & 41\% & --- & --- \\
+    Coquimbo       & 334 & 39.4$^\circ$ & 15.0$^\circ$ & 29\% & 0.63 & 0.76 \\
+    Constituci\'on & 23  & 38.7$^\circ$ & 14.0$^\circ$ & 28\% & --- & --- \\
+    Valdivia       & 164 & 46.4$^\circ$ & 7.4$^\circ$  & 45\% & 0.54 & 0.93 \\
     \midrule
-    All            & 526 & \textbf{40.3}$^\circ$ & 12.9$^\circ$ & \textbf{31\%} & & \\
+    All            & 538 & \textbf{39.9}$^\circ$ & 13.0$^\circ$ & \textbf{30\%} & & \\
     \bottomrule
   \end{tabular}
 \end{table}
@@ -707,12 +727,14 @@ the $\cos\theta$ correction to the rates --- settles nothing, since a persistent
 angle reduces a rate by that factor arithmetically. Two independent tests
 discriminate. First, spatial coherence: transects are ordered along the coast at
 $\approx$100~m spacing, so a real orientation should be shared by neighbours
-while estimator noise should not. Adjacent transects correlate at $r=0.65$
-(Coquimbo, $n=319$) and $r=0.50$ (Valdivia, $n=162$) against permutation nulls
-of $\pm0.11$ and $\pm0.13$, and the correlation decays to zero by a lag of
-$\approx$2~km --- the signature of coastal orientation, whereas noise would give
-$r\approx0$ at every lag. Second, temporal stability: computed on two disjoint
-halves of the record, the per-transect angles agree at $r=0.70$ and $r=0.92$.
+while estimator noise should not. Adjacent transects correlate at $r=0.63$
+(Coquimbo, $n=334$) and $r=0.54$ (Valdivia, $n=164$) against a permutation null
+of $\pm0.13$, and the correlation decays into that null by a separation of
+$\approx$1.3~km and to zero by $\approx$2.5~km (Fig.~\ref{fig:angle}b) --- the
+signature of coastal orientation, whereas noise would give $r\approx0$ at every
+lag. Second, temporal stability: computed on two disjoint halves of the record,
+the per-transect angles agree at $r=0.76$ and $r=0.93$
+(Fig.~\ref{fig:angle}c).
 Estimator noise does not reproduce itself across independent subsets of dates.
 Projecting the published rates onto the local normal would reduce their
 magnitude by $22$--$39\%$ depending on the site.
@@ -743,6 +765,7 @@ close, and as the strongest argument we can offer for treating the measurement
 geometry of a shoreline-change study as a quantity to be reported and justified
 rather than assumed.
 
+\FloatBarrier
 \subsection{Per-satellite precision and weighting of rates}
 The weighted regression rate (WLR) needs a weight per observation, conventionally
 a fixed value assumed per satellite generation. The engine instead calibrates
