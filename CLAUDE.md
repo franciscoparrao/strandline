@@ -1299,3 +1299,75 @@ benchmark (software + accuracy vs CoastSat + velocidad).
     versión mínima soportada).
   - **Paper actualizado**: §4.2 pasa de "no implementado" a describir el filtro
     y su diferencia numérica residual; Limitations ya no lo lista como pendiente.
+
+- **2026-08-08**: **Error factual encontrado y corregido en §5.4 del paper, y
+  el hallazgo geométrico rehecho de raíz** (commits `78bf9a2`, `3057bdb`,
+  `d59aed1`). La sesión arrancó con la pregunta estratégica "¿cuál es el valor
+  del paper más allá del motor?" y terminó destapando que el candidato a
+  aporte central estaba mal descrito.
+  - **El error (en prosa que yo mismo escribí)**: §5.4 y la Tabla 2 decían que
+    la tercera variante eran *"transects regenerated per scene"*. **Es falso.**
+    En `spike/profile_sr/run_experiment_multisite.py`,
+    `build_baseline_and_transects()` construye los transectos UNA vez por sitio
+    desde la `reference_shoreline` histórica, y las tres variantes intersectan
+    contra **esos mismos transectos fijos**. Lo que cambia entre variantes es
+    cómo se refina la línea de costa, no la geometría de medición. El origen
+    del error: `refine_line_subpixel` genera internamente mini-perpendiculares
+    frescas por escena, y lo describí como si fueran los transectos DSAS.
+  - **Lo que los datos sí sostienen**: refinar el contorno sobre normales
+    locales mejora (11.8 vs 14.3 m); ajustar el perfil a lo largo de los
+    transectos fijos es **peor que no refinar** (15.2 m). La diferencia entre
+    esas dos es la única evidencia sobre geometría, y es indirecta. §5.4 se
+    retituló *"Where the sub-pixel fit is sampled"*.
+  - **Insight conceptual que reemplaza al claim erróneo** (esto es lo que hay
+    que preservar): la geometría de **extracción** y la de **medición** son
+    decisiones separadas que los pipelines estándar confunden, y **solo la
+    segunda tiene que ser fija**. La versión fuerte ("regenerar transectos por
+    escena") no es solo no-soportada: es **incoherente**, porque una tasa de
+    cambio necesita una geometría estable en el tiempo. Por eso la búsqueda
+    bibliográfica de la adenda 16 no encontró nada — no es una laguna, es un
+    no-starter.
+
+- **2026-08-09**: **Medición directa de la desalineación shore-normal —
+  RESULTADO POSITIVO, con control que pasa** (`spike/transect_angle/`). Es el
+  candidato real a valor agregado del paper: un claim sobre las tasas de
+  cualquiera que use transectos fijos, no sobre nuestro motor.
+  - **Diseño**: ángulo θ entre cada transecto fijo del estudio y la normal
+    local de la shoreline instantánea, sobre los transectos y shorelines
+    **publicados** (sin re-extraer nada, sin confound SR-vs-TOA). Si θ es
+    persistente, la tasa queda inflada por `1/cos(θ)`: un retroceso real de Δ
+    perpendicular se mide como Δ/cos(θ). Como `1/cos(θ) ≥ 1` siempre, el error
+    es **de un solo signo** — solo puede inflar.
+  - **Tres versiones fallaron su propio control y sus números se descartaron**
+    (v2 daba medianas de 23-44°, espectaculares y falsas). El arreglo NO fue
+    eliminar el error del estimador: θ=arcsin|u·t| es una cantidad
+    **rectificada**, así que el ruido infla la mediana aunque la verdad sea 0.
+    La solución fue una **nula justa** — mismo estimador sobre la línea de
+    referencia (θ verdadero=0 por construcción) re-muestreada a 15 m y
+    cuantizada a la grilla de píxel.
+  - **Resultado**: nula 0.5-4.2°, señal 30-35°, estable en ventanas de ±60 a
+    ±200 m (Mann-Whitney p≈0). Descomposición persistente/fluctuante (solo la
+    persistente sesga la tasa): **θ persistente mediana 40.3°, inflación de
+    tasa implicada 31%**; 85% de los transectos con θ_persist > 20°.
+  - **Dos discriminantes independientes, ambos positivos** (la corrección
+    `cos(θ)` sobre las tasas es aritméticamente forzada y NO prueba nada — la
+    pregunta respondible era si el ángulo es real): (a) **coherencia
+    espacial**, r=0.652 (Coquimbo, n=319) y 0.503 (Valdivia, n=162) a lag 1
+    contra nula permutada de ±0.11, **decayendo a ~0 a lag 20 (≈2 km)** —
+    firma de orientación costera real, el ruido daría r≈0 en todos los lags;
+    (b) **estabilidad temporal**, θ_persist en dos mitades de fechas disjuntas
+    correlaciona r=0.698 y 0.921.
+  - **Caveats a declarar** (las 6 están en el README del spike). Las dos que
+    importan: **solo 2 de 4 sitios** sostienen los discriminantes (Viña 17 y
+    Constitución 23 transectos son muy pocos); y sobre todo la **caveat
+    interpretativa** — que el transecto esté oblicuo está MEDIDO, pero que eso
+    infle la tasa supone además que el desplazamiento verdadero es
+    perpendicular a la orientación **local** y no a la **regional**. A favor de
+    lo local: el ángulo aguanta al ensanchar la ventana de ±60 a ±200 m (30.4°
+    → 35.5°), o sea no son cúspides de pequeña escala. Es un supuesto físico
+    explícito, no una medición — y es por donde va a atacar un reviewer.
+  - **Implicación incómoda, sin resolver**: si la interpretación es correcta,
+    las tasas publicadas con transectos fijos —**incluidas las del estudio de
+    referencia (Geomorphology)**— estarían infladas 22-39% según el sitio.
+  - **NO se subió al paper**: decisión del usuario pendiente, porque cambia el
+    centro de gravedad del manuscrito y toca trabajo previo suyo.
