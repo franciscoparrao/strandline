@@ -1371,3 +1371,35 @@ benchmark (software + accuracy vs CoastSat + velocidad).
     referencia (Geomorphology)**— estarían infladas 22-39% según el sitio.
   - **NO se subió al paper**: decisión del usuario pendiente, porque cambia el
     centro de gravedad del manuscrito y toca trabajo previo suyo.
+
+- **2026-08-10**: **§5.5 subida al paper + Fig. 3, y la Tabla 3 resultó
+  internamente inconsistente** (commits `bb7f9c2`, `dda4739`).
+  - **§5.5 "How far the fixed transects are from shore-normal"** con el
+    resultado del ángulo, más **Fig. 3** (3 paneles en R/ggplot2:
+    distribución vs nula; coherencia espacial decayendo con banda de
+    permutación; estabilidad entre mitades). Actualizados abstract, highlights,
+    contribuciones y Limitations, que ahora **abre** con este resultado.
+  - **Framing que hay que preservar**: la inflación de tasa se presenta como
+    **consecuencia condicional, no medida**, en párrafo propio y titulado
+    *"What is measured and what is assumed"*. Separa lo medido (la oblicuidad +
+    los dos discriminantes) de lo supuesto (que el desplazamiento sea
+    perpendicular a la orientación local y no a la regional). NO suavizar esa
+    separación: es la defensa del resultado, y es por donde va a atacar un
+    reviewer.
+  - **Hallazgo al hacer la figura — la Tabla 3 estaba mal**: la mediana de la
+    figura daba 44° y la tabla 40.3°. Al perseguirlo apareció que **la tabla
+    mezclaba dos corridas distintas**: el θ venía de un submuestreo de 120
+    fechas y los coeficientes `r` de otro de 160. Se regeneró todo desde un
+    único export (`spike/transect_angle/export_for_figure.py`, 300 fechas) y
+    ahora figura, tabla y texto salen de la misma fuente. **Lección
+    reutilizable**: cuando una tabla se llena a mano desde varias corridas de
+    script, la inconsistencia no la detecta ningún test — la detectó la figura
+    al no cuadrar.
+  - Cifras finales: θ persistente global **39.9°** (n=538), inflación **30%**,
+    r espacial 0.63/0.54, r temporal 0.76/0.93.
+  - **Dos defectos más que solo aparecieron al mirar la figura renderizada**:
+    leyenda triplicada (patchwork no funde guías con claves de geom distintas;
+    y un `& guides(...)` global pisaba el `none` de un panel), y densidades por
+    sitio con n=17/23 que dibujaban modas que eran ruido de muestreo.
+  - `placeins` + `\FloatBarrier` al cierre de §5.5: la figura se iba flotando
+    hasta la última página del documento.
