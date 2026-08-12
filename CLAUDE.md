@@ -1403,3 +1403,89 @@ benchmark (software + accuracy vs CoastSat + velocidad).
     sitio con n=17/23 que dibujaban modas que eran ruido de muestreo.
   - `placeins` + `\FloatBarrier` al cierre de §5.5: la figura se iba flotando
     hasta la última página del documento.
+
+- **2026-08-12**: **Pasada de consistencia numérica sobre todo el manuscrito**
+  (commit `133026c`) — el pendiente que dejó abierto la adenda anterior. La
+  sospecha estaba bien fundada y el problema era más grande que la Tabla 3.
+  - **La causa raíz, generalizada**: los **tres** scripts de
+    `spike/transect_angle/` usaban submuestreos de fechas distintos
+    (`MAX_DATES` = 120 en `measure_transect_angle.py`, 160 en
+    `verify_rate_impact.py`, 300 en `export_for_figure.py`) y §5.5 tomaba
+    cifras de los tres a la vez. Se igualaron los tres a 300, se re-corrió el
+    barrido y su salida quedó en `results.txt` como fuente única. La
+    descomposición reproduce el export **exacto** (39.9°, 86.2%, 75.1%), o sea
+    Tabla 3 y Fig. 3 quedan confirmadas; lo que se movió fue el resto de §5.5.
+  - Recomputado a 300 fechas: reducción del LRR 22–39% → **21–39%**; ángulo
+    medido 30–35° → **31–36°**; barrido de ventanas 30.4°→35.5° pasa a
+    **30.7°→36.1°**. La nula de 0.5–4.2° **sí** se sostiene sin cambios.
+  - **Seis errores de hecho** que no eran de redondeo:
+    - §5.1 atribuía "0.20 m (media 2.9, p90 1.2)" **al fixture de
+      integración**. Son las mismas 6 escenas de Viña con máscara de nubes; y
+      la media que hoy tiene `comparison.json` es **3.3**, no 2.9 — el 2.9 era
+      de una versión del archivo anterior al refactor v0.3 (adenda 3), que lo
+      sobreescribió. Mismo patrón que la Tabla 3: cifra citada desde la
+      bitácora mientras el artefacto se regeneraba por debajo.
+    - §5.4 y la Tabla 2 decían *"all six sites"*; `run_experiment_multisite.py`
+      cubre **cuatro** (Coquimbo, Constitución, Valdivia, Chiloé). Viña y Arica
+      son una corrida aparte (`run_experiment.py`) y ahora se reportan como
+      tal, con sus propias cifras (11.7 vs 13.2 m). Es el mismo tipo de mezcla
+      que ya había mordido en §5.4 en agosto.
+    - §4.3 afirmaba *pan-sharpening disabled* y **dos oraciones después**
+      describía la referencia como *15 m pan-sharpened TOA*. El spike usa
+      `pan_off=True`: ambos motores leen el mismo ráster de 15 m. Corregido en
+      §4.3 y en las dos menciones de §5.1.
+    - §5.3 daba "<3 mm al incorporar $S_a$" como si agregarlo degradara la
+      precisión. Los 3 mm son la **tolerancia del `assert`**, no una medición.
+      Instrumentando el test, el error real con los 13 constituyentes ($S_a$
+      incluido) es **1.15438 mm** — o sea el 1.15 mm que ya citaba el paper
+      *ya lo contenía*. **Lección**: no citar un umbral de test como resultado.
+    - §5.6: el decaimiento espacial no daba 1.3/2.5 km sino que entra en la
+      banda a ~1 km y cruza cero entre 1.5 y 2 km; y la banda de permutación
+      es **±0.14**, que es la que dibuja la propia Fig. 3b (±0.13 en el texto).
+    - Highlight decía "~0.2 m **across six sites**": son seis *escenas* de un
+      sitio. Limitations decía "two of **six** sites" contra "two of the four"
+      en §5.5. Conclusiones aún decía *"regenerating geometry per scene"*,
+      residuo textual del claim retractado el 2026-08-08.
+  - Menores: 84 → **106 tests** (97 core + 5 CLI + 4 integración); los 0.9 s
+    "secuenciales" de §5.2 son del clasificador **pre-fusión** (el
+    single-thread actual es 0.55–0.62 s); el caption de la Tabla 1 anunciaba
+    una columna *Period* inexistente.
+  - **Verificado y sin cambios**: Tabla 1 exacta contra los pickles (484/392/
+    770/1228/753/680 escenas; 100/334/250/176/334/316 transectos); Tabla 4
+    internamente coherente (L8 entre los dos más precisos en los 4 sitios,
+    3.34× en varianza en Coquimbo); 49.602 cruces, 0 mismatches de NaN y error
+    máximo de chainage 0.000116 m reproducen exacto; 1984/1985–2025 correcto;
+    0.105 y 0.0725 del slope S2 salen exactos de `slopes_s2*.csv`.
+  - **Tres cifras que NO se pudieron cerrar** (necesitan decisión o medición,
+    no redacción — están en el cuerpo del commit):
+    1. **El 197×** (abstract, highlights, §2.5, §5.2): el par 0.059 s / 11.63 s
+       no tiene artefacto guardado y **no reproduce**. Dos re-corridas dieron
+       Rust 0.039 s y Python 10.42 s y 14.44 s, o sea la razón va de 267× a
+       370× según la carga de la máquina. No se tocó el número porque es
+       internamente consistente y depende del protocolo de hardware que §4.3
+       ya tiene como TODO. Es el pendiente que más urge: aparece en cuatro
+       lugares del paper.
+    2. **La pendiente "0.097 por regresión directa"** (§5.3): sin script
+       guardado; la reconstrucción obvia desde `intersections.csv.gz` +
+       `tides.csv` da **0.115**.
+    3. **La Tabla 4** (pesos por satélite): la propia adenda del 2026-07-17 (5)
+       dice que el script fue ad hoc y no se guardó. Regenerable con
+       `/mnt/kingston` montado y el subcomando `satellite-weights`.
+  - **Detalle metodológico sin resolver**: `export_for_figure.py` construye la
+    nula de Viña desde los **puntos medios de los transectos**, no desde una
+    `reference_shoreline` (el pickle de Viña no tiene esa clave y el script cae
+    a ese respaldo). §5.5 la describe como la línea de referencia para los
+    cuatro sitios. Afecta 248 de 1088 muestras de la nula y probablemente juega
+    a favor —esa línea es más suave que una shoreline real, así que la nula
+    sale si acaso optimista— pero el texto no dice lo que el código hizo. La
+    corrección puede ser matizar la frase o reconstruir la nula de Viña.
+  - **Lección reutilizable, más fuerte que la de la adenda anterior**: la de
+    2026-08-10 decía "tabla y figura deben salir de un solo export". Lo que
+    esta pasada muestra es que **la unidad correcta no es la tabla, es la
+    sección**: prosa, tabla y figura de un mismo experimento tienen que salir
+    de una sola corrida, y la forma barata de garantizarlo es que **haya un
+    solo script** con los parámetros del muestreo — no tres variantes que
+    divergen en silencio. Ningún test detecta esto, y a diferencia de la vez
+    anterior aquí **tampoco lo habría detectado la figura**, porque las cifras
+    contaminadas (la nula, el barrido de ventanas, el 22–39%) viven solo en la
+    prosa.
