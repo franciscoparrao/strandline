@@ -39,7 +39,7 @@ SITES = [
 HALF_WIN = 100.0
 MIN_PTS = 3
 MIN_DATES = 10
-MAX_DATES = 160
+MAX_DATES = 300  # igualado al export de la Fig. 3 (una sola corrida para todo 5.5)
 
 
 # ---- estimador (idéntico al de measure_transect_angle.py) ----

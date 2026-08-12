@@ -41,7 +41,7 @@ SITES = [
     ('VALDIVIA', 'VALDIVIA_analysis.pkl'),
 ]
 MIN_PTS = 3
-MAX_DATES = 120
+MAX_DATES = 300  # igualado al export de la Fig. 3 (una sola corrida para todo 5.5)
 WINDOWS = [60.0, 100.0, 150.0, 200.0]
 PIXEL = 15.0          # escalonado de marching squares a imitar en la nula
 VERTEX_SPACING = 15.0  # densidad de vértices de las shorelines reales
