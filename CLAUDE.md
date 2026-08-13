@@ -1489,3 +1489,77 @@ benchmark (software + accuracy vs CoastSat + velocidad).
     anterior aquí **tampoco lo habría detectado la figura**, porque las cifras
     contaminadas (la nula, el barrido de ventanas, el 22–39%) viven solo en la
     prosa.
+
+- **2026-08-13**: **El benchmark de intersección, medido con protocolo — el
+  197× era un comparable mezclado** (commits `377ae5f`, `06ca643`, `1ab043a`).
+  Cierra el primero de los tres pendientes que dejó la pasada de consistencia,
+  y el que más urgía porque el número aparecía en cuatro lugares del paper.
+  - **Arnés nuevo**: `spike/transects/benchmark_intersect.py`, versionado, con
+    el protocolo que §4.3 tenía como TODO — 21 rondas **intercaladas** (python,
+    rust paralelo, rust 1 hilo), 3 descartadas de warm-up, mediana e IQR, y
+    registro de hardware, versiones y carga. Reemplaza la medición de una sola
+    corrida sin artefacto (0.059 s vs 11.63 s) que **nunca reprodujo**.
+  - **Dos decisiones del comparable**, ambas ahora escritas en §4.3: (a)
+    **cómputo contra cómputo** — el CLI ya cronometraba internamente sólo
+    `compute_intersections` (los CSV se leen antes de arrancar el reloj y se
+    escriben después), que es el contraparte exacto de la función vectorizada
+    del paper sobre arrays en memoria; el wall-clock end-to-end se reporta
+    aparte y **penaliza al motor, no al revés**. (b) **Rondas intercaladas** en
+    vez de bloques, para que una racha de carga afecte a los tres por igual.
+  - **El hallazgo metodológico, que es lo reutilizable**: **la razón es mucho
+    más estable que los tiempos absolutos de los que sale**. Dos corridas
+    independientes con medianas de Python que difieren **13%** (8.73 s vs
+    7.63 s) dieron razones que coinciden a **0.1%** (277.0× vs 277.4×). Es
+    consecuencia directa de intercalar: numerador y denominador ven el mismo
+    estado de la máquina y la contención se cancela. Por eso las razones se
+    forman **por ronda** y no como cociente de medianas, y por eso el 197×
+    —medido en una sola corrida— nunca iba a reproducir.
+  - **Medición final** (i7-1270P 12c/16t, 38 GB, carga 3.0, rustc 1.96.1,
+    numpy 1.26.4):
+    | comparable | tiempo | razón | IQR |
+    |---|---|---|---|
+    | referencia Python vectorizada | 7.34 s | — | — |
+    | operador de intersección, 16 hilos | 0.027 s | **279.8×** | 15% |
+    | operador de intersección, 1 hilo | 0.201 s | **37.2×** | 15% |
+    | línea de comandos end-to-end | 0.132 s | **56.3×** | 9% |
+
+    El 197× cae **entre** el cómputo paralelo y el wall-clock, lo que sugiere
+    que salió de mezclar los dos lados del comparable en una sola corrida.
+  - **Decisión del usuario**: publicar las **tres** en una tabla (Tabla 4 nueva
+    en §5.2), con el abstract titulando ~280× y aclarando *"on the same
+    computation (37× single-threaded)"*. Cierra de paso una **promesa
+    incumplida**: §4.3 decía medir ambas configuraciones y el paper citaba una
+    sola cifra. Se eliminó también de §4.3 la promesa de reportar *peak
+    resident memory*, que el paper no reporta (agregarla al arnés es fácil:
+    `/usr/bin/time -v` y `getrusage`).
+  - **La saga de contención, que vale como advertencia operativa**: la primera
+    corrida (2026-08-12) se hizo con un `RandomForestRegressor(n_jobs=-1)` de
+    spatial-sampling saturando ~11 de los 16 hilos. La carga fue de 25 a 51 y
+    **el IQR de Python salió mayor que su mediana** (31.7 s sobre 26.7 s). Un
+    vigilante de 45 min expiró sin encontrar ventana; la máquina recién se
+    liberó al día siguiente. Esa corrida se conserva como
+    `benchmark_intersect_contended.json`, **no como resultado** sino como
+    evidencia de la sensibilidad a contención.
+  - **Dos defectos de la guarda que yo mismo introduje, corregidos** — los dos
+    por la misma causa, que el `loadavg` **incluye la carga del propio
+    benchmark** (Python fija un core ~9 s por ronda y rayon dispara 16 hilos):
+    1. El veredicto se tomaba del `loadavg` **pico**, así que marcó *no
+       publicable* una corrida limpia cuyo único problema era ella misma
+       (base 3.7 → pico 4.9 sobre un umbral de 4.0). Ahora decide la
+       **dispersión de las razones**, que es lo que el paper afirma —
+       discrimina bien: 119% en la corrida contendida, ~15% en las limpias.
+    2. El chequeo de entrada abortaba al lanzar una corrida **justo después de
+       otra**, porque el `loadavg` arrastraba la anterior por inercia de un
+       minuto. Ahora espera a que decaiga (`--settle-s`) en vez de abortar.
+  - **Lección**: un criterio de calidad automático que mide la actividad del
+    propio experimento se auto-descalifica. Y el estadístico de estabilidad
+    correcto para un benchmark comparativo es la dispersión de **la razón**, no
+    la de los tiempos — es la razón lo que se publica.
+  - La **correctitud** reprodujo idéntica en las cinco corridas, contendidas y
+    limpias (no depende del reloj): 49.602 cruces, 0 mismatches de NaN, error
+    máximo de chainage 0.000116 m.
+  - **Siguen abiertas** las otras dos cifras sin fuente de la pasada anterior:
+    la pendiente `0.097` por regresión directa (§5.3, sin script guardado; la
+    reconstrucción obvia da 0.115) y la Tabla 3 de pesos por satélite (script
+    ad hoc no versionado, regenerable con `/mnt/kingston` y
+    `strandline satellite-weights`).
