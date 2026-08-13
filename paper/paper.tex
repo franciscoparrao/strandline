@@ -44,8 +44,9 @@ its reference: classification to within $1.5\%$ of CoastSat pixel-wise, tidal
 prediction to $1.15$~mm against \texttt{pyTMD}, and transect intersection, rates
 and quality control to rounding against a national erosion study. On matched
 scenes the engine reproduces the CoastSat shoreline to a median of $0.2$~m,
-while the transect-intersection step runs about $197\times$ faster than the
-vectorised Python reference and the whole tool installs in one command. Across a
+while the transect-intersection step runs about $280\times$ faster than the
+vectorised Python reference on the same computation ($37\times$
+single-threaded) and the whole tool installs in one command. Across a
 six-site benchmark spanning $24^\circ$ of latitude along the coast of Chile we
 also report two findings with deliberately bounded claims. First, the geometry
 along which a shoreline is sampled matters and is routinely conflated with the
@@ -65,7 +66,7 @@ released open source with a citable archive.
 \begin{highlights}
 \item A single-binary Rust engine ports and extends the CoastSat SDS pipeline
 \item Native harmonic tidal synthesis matches pyTMD to $\sim$1\,mm, no dependency chain
-\item Vectorised transect intersection runs $\sim$197$\times$ faster than the Python reference
+\item Vectorised transect intersection runs $\sim$280$\times$ faster than the Python reference
 \item Median shoreline agreement with CoastSat $\sim$0.2\,m on matched Landsat scenes
 \item Fixed transects sit a persistent $40^\circ$ from the local shore-normal, inflating rates
 \end{highlights}
@@ -298,10 +299,10 @@ deviation, maximum range, minimum number of points, with an
 Against the paper's vectorised Python implementation over 200 synthetic shorelines
 $\times$ 250 transects (49{,}602 crossings) the two agree with zero mismatches in
 the \texttt{NaN} pattern produced by the quality control and a maximum chainage
-difference of $0.1$~mm. On the same problem the Rust operator runs in
-$0.059$~s against $11.63$~s for the vectorised Python reference, a
-$\approx197\times$ speed-up (Sect.~\ref{sec:results}); relative to the original
-per-transect CoastSat loop the gap is larger still.
+difference of $0.1$~mm. On the same problem the Rust operator computes the
+intersections in $0.027$~s against $7.34$~s for the vectorised Python
+reference, a $\approx280\times$ speed-up (Sect.~\ref{sec:results}); relative to
+the original per-transect CoastSat loop the gap is larger still.
 
 \subsection{Change rates and quality control}
 From each transect's cross-shore time series the engine computes the standard
@@ -501,18 +502,37 @@ inter-product ($30$~m SR against TOA on a $15$~m grid) and interpret the
 residual accordingly; this sets a floor on achievable agreement that is
 independent of the port.
 
-\subsection{Speed, memory and installation}
+\subsection{Speed, memory and installation}\label{subsec:speedmethod}
 Run time is reported for the two stages that dominate cost --- the per-transect
-intersection and the per-pixel classification --- in both the deterministic
-single-threaded configuration and the default \texttt{rayon}-parallel one,
-against the vectorised Python reference and, for the intersection, against the
-original CoastSat \texttt{compute\_intersection\_QC} loop. We also report peak
-resident memory and, as a proxy for deployment friction, the installation
-footprint: a single \texttt{cargo install} producing a self-contained binary
-versus a Conda environment resolving the CoastSat dependency chain
-(GDAL, scikit-learn, \texttt{pyfes}/\texttt{pyTMD}). All timings are wall-clock
-on % TODO: hardware (CPU model, cores, RAM), warm cache, N repetitions, median.
-[hardware and protocol to be finalised].
+intersection and the per-pixel classification --- in both the single-threaded
+configuration and the default \texttt{rayon}-parallel one, against the
+vectorised Python reference. As a proxy for deployment friction we also
+contrast the installation footprint: a single \texttt{cargo install} producing
+a self-contained binary versus a Conda environment resolving the CoastSat
+dependency chain (GDAL, scikit-learn, \texttt{pyfes}/\texttt{pyTMD}).
+
+Timings are wall-clock on an Intel Core i7-1270P (12 cores, 16 threads;
+4 performance and 8 efficiency cores) with 38~GB of RAM under Linux, with
+\texttt{rustc}~1.96.1 and NumPy~1.26.4, on a warm page cache. Each
+configuration is measured over 21 repetitions of which the first three are
+discarded, and we report the median with the interquartile range. Two design
+choices matter for interpreting the result. First, the comparison is
+computation against computation: the engine times only the intersection
+operator, with the input parsed before the clock starts and the output
+serialised after it stops, which is the counterpart of the Python function
+operating on arrays already in memory; we additionally report the end-to-end
+wall-clock of the command-line invocation, which includes process start-up and
+CSV input/output and therefore penalises the engine rather than the reference.
+Second, the repetitions are \emph{interleaved} rather than run in blocks, so
+that a burst of unrelated load on the machine perturbs both sides of the ratio
+equally. The second choice turns out to be the decisive one: the speed-up
+ratio is markedly more stable than the absolute times it is built from. Two
+independent runs whose median Python times differ by $13\%$ yield ratios that
+agree to $0.1\%$. Ratios are therefore formed per repetition and summarised,
+rather than taken as a quotient of medians, and a run is accepted only if the
+interquartile range of every ratio stays within $20\%$ of its median --- a
+criterion that rejects contended runs, where the dispersion of the reference
+alone exceeded its own median.
 
 %============================================================
 \section{Results}\label{sec:results}
@@ -543,11 +563,41 @@ all six sites in Sect.~\ref{subsec:geom}.
 \subsection{Speed}
 The vectorised, parallel operators reproduce the reference outputs
 (Sect.~\ref{subsec:validation}) at a fraction of the cost. On the intersection benchmark ($250$ transects
-$\times$ $200$ shorelines) the engine runs in $0.059$~s against $11.63$~s for the
-vectorised Python reference, a $\approx197\times$ speed-up; measured against the
-original per-transect CoastSat \texttt{compute\_intersection\_QC} loop, which the
-reference study already replaced because it took tens of minutes, the gap spans
-several orders of magnitude. The classification stage, the other cost centre,
+$\times$ $200$ shorelines) the engine computes the intersections in $0.027$~s
+against $7.34$~s for the vectorised Python reference, a $\approx280\times$
+speed-up (Table~\ref{tab:speed}). The gap survives every way of drawing the
+comparison: restricted to a single thread, so that it measures the port rather
+than the parallelism, it is still $\approx37\times$; and charged with process
+start-up and CSV parsing that the in-memory Python reference never pays, the
+end-to-end command still returns in $0.13$~s, $\approx56\times$ faster.
+Measured against the original per-transect CoastSat
+\texttt{compute\_intersection\_QC} loop, which the reference study already
+replaced because it took tens of minutes, the gap spans several orders of
+magnitude.
+
+\begin{table}[t]
+  \centering
+  \small
+  \caption{Intersection benchmark, $250$ transects $\times$ $200$ shorelines,
+  over 21 interleaved repetitions (first three discarded) on the hardware of
+  Sect.~\ref{subsec:speedmethod}. The speed-up is formed per repetition and
+  summarised, not taken as a quotient of medians. The first two rows compare
+  the intersection operator against the equivalent Python function, both
+  operating on data already in memory; the third charges the engine with
+  process start-up and CSV input/output, which the reference does not pay.}
+  \label{tab:speed}
+  \begin{tabular}{@{}lrrr@{}}
+    \toprule
+    Configuration & Time (s) & Speed-up & IQR of speed-up \\
+    \midrule
+    Vectorised Python reference       & 7.34  & ---            & --- \\
+    \midrule
+    Intersection operator, 16 threads & 0.027 & $279.8\times$  & 15\% \\
+    Intersection operator, 1 thread   & 0.201 & $37.2\times$   & 15\% \\
+    End-to-end command line           & 0.132 & $56.3\times$   & 9\% \\
+    \bottomrule
+  \end{tabular}
+\end{table} The classification stage, the other cost centre,
 costs $\approx0.55$--$0.62$~s per scene single-threaded and $\approx0.15$~s on
 16 cores; fusing feature extraction and inference into a single parallel pass,
 rather than materialising the intermediate feature matrix, is what makes that
@@ -558,7 +608,6 @@ CoastSat classifier. Extraction without the classifier runs at $\approx18$~ms pe
 against $\approx1.17$~s for CoastSat ($\approx65\times$). Crucially the parallel
 and single-threaded outputs are bit-for-bit identical, so these speed-ups change
 only the run time, never the result.
-% TODO: fold in hardware and repetition protocol once fixed (Sect. 4.4).
 
 \subsection{Native tidal synthesis}
 The native harmonic synthesis matches \texttt{pyTMD} to millimetres: the phase of
