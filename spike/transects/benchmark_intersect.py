@@ -219,6 +219,10 @@ def main():
         help="carga máxima tolerada al arrancar (default: 25%% de los hilos)")
     ap.add_argument("--force", action="store_true",
                     help="medir igual con la máquina cargada (marca el JSON como no válido)")
+    ap.add_argument("--max-rel-iqr", type=float, default=0.20,
+                    help="IQR/mediana máximo tolerado en las RAZONES (default 0.20)")
+    ap.add_argument("--settle-s", type=int, default=180,
+                    help="segundos a esperar a que la carga baje antes de abortar")
     args = ap.parse_args()
 
     if not os.path.exists(BIN):
@@ -229,11 +233,22 @@ def main():
     # 25 -> 51 por un job ajeno) el IQR de Python salió MAYOR que su mediana.
     max_load = args.max_load if args.max_load is not None else 0.25 * os.cpu_count()
     load0 = os.getloadavg()[0]
+    # El loadavg tiene inercia de un minuto, así que tras una corrida previa
+    # todavía arrastra la carga de ESA corrida. Se espera a que decaiga en vez
+    # de abortar: si no, dos corridas seguidas son imposibles.
+    waited = 0
+    while load0 > max_load and not args.force and waited < args.settle_s:
+        print(f"  carga {load0:.1f} > {max_load:.1f}; esperando a que baje "
+              f"({waited}/{args.settle_s} s)", flush=True)
+        time.sleep(15)
+        waited += 15
+        load0 = os.getloadavg()[0]
     if load0 > max_load and not args.force:
         raise SystemExit(
             f"carga actual {load0:.1f} > {max_load:.1f} tolerada en "
-            f"{os.cpu_count()} hilos. La medición no sería publicable; espera a "
-            f"que la máquina se desocupe o pasa --force para medir igual."
+            f"{os.cpu_count()} hilos tras esperar {args.settle_s} s. La medición "
+            f"no sería publicable; espera a que la máquina se desocupe o pasa "
+            f"--force para medir igual."
         )
 
     ts, keys, shorelines = build_workload()
@@ -267,15 +282,30 @@ def main():
         )
 
     load_after = os.getloadavg()
-    kept = {k: v[args.warmup:] for k, v in series.items()}
+    kept = {k: np.array(v[args.warmup:]) for k, v in series.items()}
     summary = {k: stats(v) for k, v in kept.items()}
+    for k, s in summary.items():
+        s["rel_iqr"] = s["iqr_s"] / s["median_s"]
 
-    py = summary["python"]["median_s"]
-    speedups = {
-        "compute_vs_python_parallel": py / summary["rust_par_compute"]["median_s"],
-        "compute_vs_python_single_thread": py / summary["rust_1t_compute"]["median_s"],
-        "wall_vs_python_parallel": py / summary["rust_par_wall"]["median_s"],
-    }
+    # La razón se calcula RONDA A RONDA, no dividiendo medianas: como las
+    # rondas están intercaladas, numerador y denominador ven el mismo estado de
+    # la máquina y la contención se cancela. Es notablemente más estable que
+    # los tiempos absolutos — dos corridas del 2026-08-13 con medianas de
+    # Python que difieren 13% dieron razones que coinciden a 0.1%.
+    speedups = {}
+    for name, den in (("compute_vs_python_parallel", "rust_par_compute"),
+                      ("compute_vs_python_single_thread", "rust_1t_compute"),
+                      ("wall_vs_python_parallel", "rust_par_wall")):
+        q = kept["python"] / kept[den]
+        s = stats(q)
+        speedups[name] = {
+            "median": s["median_s"], "iqr": s["iqr_s"],
+            "rel_iqr": s["iqr_s"] / s["median_s"],
+            "min": s["min_s"], "max": s["max_s"],
+        }
+    # El veredicto se toma sobre la dispersión de las RAZONES, que es lo que el
+    # paper afirma, no sobre la de los tiempos absolutos.
+    worst_rel_iqr = max(s["rel_iqr"] for s in speedups.values())
 
     out = {
         "workload": {"transects": len(keys), "shorelines": N_SHORE,
@@ -283,11 +313,20 @@ def main():
         "protocol": {"rounds": args.rounds, "warmup_discarded": args.warmup,
                      "interleaved": True,
                      "rust_single_thread_via": "RAYON_NUM_THREADS=1",
-                     "max_load_allowed": max_load,
+                     "baseline_load": load_before[0],
+                     "max_baseline_load_allowed": max_load,
                      "peak_load_during_run": max(loads),
-                     # False => la máquina estuvo contendida; las cifras
-                     # describen esta corrida, no el rendimiento del motor.
-                     "publishable": max(loads) <= max_load},
+                     "max_rel_iqr_allowed": args.max_rel_iqr,
+                     "worst_rel_iqr": worst_rel_iqr,
+                     # El veredicto NO se toma del loadavg pico: el loadavg
+                     # incluye la carga del propio benchmark (Python fija un
+                     # core ~9 s por ronda y rayon dispara 16 hilos), así que
+                     # penalizaría a la medición por existir. Lo que decide es
+                     # la dispersión de los propios tiempos: si la contención
+                     # externa importó, se ve como IQR alto. En la corrida
+                     # contendida del 2026-08-12 el IQR de Python fue 119% de
+                     # su mediana; sin contención baja al orden del 10%.
+                     "publishable": worst_rel_iqr <= args.max_rel_iqr},
         "hardware": {
             "cpu": next((l.split(":", 1)[1].strip()
                          for l in open("/proc/cpuinfo") if l.startswith("model name")), "?"),
@@ -314,20 +353,23 @@ def main():
     for k in ("python", "rust_par_compute", "rust_1t_compute",
               "rust_par_wall", "rust_1t_wall"):
         s = summary[k]
-        print(f"  {k:18s} {s['median_s']:8.4f} s  IQR {s['iqr_s']:.4f}  "
-              f"[{s['min_s']:.4f}, {s['max_s']:.4f}]")
-    print("\n  speed-up cómputo, paralelo      "
-          f"{speedups['compute_vs_python_parallel']:7.1f}×")
-    print("  speed-up cómputo, single-thread "
-          f"{speedups['compute_vs_python_single_thread']:7.1f}×")
-    print("  speed-up wall-clock del CLI     "
-          f"{speedups['wall_vs_python_parallel']:7.1f}×")
+        print(f"  {k:18s} {s['median_s']:8.4f} s  IQR {s['iqr_s']:.4f} "
+              f"({100 * s['rel_iqr']:4.1f}%)  [{s['min_s']:.4f}, {s['max_s']:.4f}]")
+    print("\n  razones por ronda (mediana, IQR relativo):")
+    for lbl, k in (("cómputo, paralelo     ", "compute_vs_python_parallel"),
+                   ("cómputo, single-thread", "compute_vs_python_single_thread"),
+                   ("wall-clock del CLI    ", "wall_vs_python_parallel")):
+        s = speedups[k]
+        print(f"    {lbl} {s['median']:7.1f}×  IQR {100 * s['rel_iqr']:4.1f}%  "
+              f"[{s['min']:.0f}, {s['max']:.0f}]")
     print(f"\n  correctitud: {out['correctness']}")
-    print(f"  carga: {load_before[0]:.1f} -> {load_after[0]:.1f} "
-          f"(pico {max(loads):.1f}, tolerada {max_load:.1f})")
+    print(f"  carga: base {load_before[0]:.1f} -> {load_after[0]:.1f} "
+          f"(pico {max(loads):.1f}; incluye la del propio benchmark)")
+    print(f"  peor IQR relativo: {100 * worst_rel_iqr:.1f}% "
+          f"(tolerado {100 * args.max_rel_iqr:.0f}%)")
     if not out["protocol"]["publishable"]:
-        print("\n  *** NO PUBLICABLE: la máquina estuvo contendida durante la "
-              "corrida. Los tiempos describen esta corrida, no el motor. ***")
+        print("\n  *** NO PUBLICABLE: dispersión demasiado alta. Los tiempos "
+              "describen esta corrida, no el motor. ***")
 
 
 if __name__ == "__main__":
