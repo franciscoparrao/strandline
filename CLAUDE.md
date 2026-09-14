@@ -1563,3 +1563,4 @@ benchmark (software + accuracy vs CoastSat + velocidad).
     reconstrucción obvia da 0.115) y la Tabla 3 de pesos por satélite (script
     ad hoc no versionado, regenerable con `/mnt/kingston` y
     `strandline satellite-weights`).
+
