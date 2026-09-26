@@ -32,11 +32,16 @@ Requires Rust 1.75 or newer. All dependencies resolve from crates.io; nothing
 else has to be installed — no Python, no GDAL, no PROJ. Build with `--locked`
 to reproduce the exact dependency versions recorded in `Cargo.lock`.
 
-Parallelism is a default feature of `strandline-core` and its output is
-bit-for-bit identical to the single-threaded path. Note that the CLI does not
-currently expose that feature, so a single-threaded **binary** requires editing
-the dependency declaration; to limit threads at run time, set
-`RAYON_NUM_THREADS=1`.
+Parallelism is a default feature and its output is identical to the
+single-threaded path — the golden tests pass in both configurations:
+
+```bash
+cargo build --release                                      # parallel (default)
+cargo build --release --no-default-features --features cloud   # deterministic, single-threaded
+cargo build --release --no-default-features                # single-threaded, no HTTP stack
+```
+
+To limit threads at run time without rebuilding, set `RAYON_NUM_THREADS=1`.
 
 ## Quick start
 

@@ -12,13 +12,19 @@ name = "strandline"
 path = "src/main.rs"
 
 [features]
-default = ["cloud"]
+default = ["cloud", "parallel"]
 # Adquisición cloud-native (STAC/COG streaming desde Planetary Computer).
 # Desactivable para un binario mínimo sin stack HTTP.
 cloud = ["dep:surtgis-cloud", "dep:surtgis-core"]
+# Propaga la feature `parallel` de strandline-core. Sin este passthrough la
+# feature quedaba inalcanzable desde la línea de comandos: `core` la traía
+# siempre por su default y no había forma de construir el binario determinista
+# single-thread que el paper declara. Requiere `default-features = false` en la
+# dependencia, o el default de `core` la reactiva igual.
+parallel = ["strandline-core/parallel"]
 
 [dependencies]
-strandline-core = { path = "../strandline-core" }
+strandline-core = { path = "../strandline-core", default-features = false }
 surtgis-cloud = { workspace = true, optional = true }
 surtgis-core = { workspace = true, optional = true }
 ndarray.workspace = true
