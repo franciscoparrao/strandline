@@ -22,25 +22,15 @@ binary, parallelised across cores.
 
 ## Installing
 
-`surtgis-core` and `surtgis-cloud` are currently **path dependencies**, so both
-repositories must sit side by side:
-
-```
-parent/
-├── surtgis/
-└── strandline/
-```
-
 ```bash
-git clone <surtgis-url> surtgis
-git clone <strandline-url> strandline
-cd strandline && cargo build --release
-# binary at target/release/strandline
+git clone <strandline-url> && cd strandline
+cargo build --release          # binary at target/release/strandline
+cargo install --path strandline-cli   # or install it on your PATH
 ```
 
-Requires Rust 1.75 or newer. Once the `surtgis` crates are published to
-crates.io these become version dependencies and `cargo install strandline`
-will work; until then the two-repository layout is required.
+Requires Rust 1.75 or newer. All dependencies resolve from crates.io; nothing
+else has to be installed — no Python, no GDAL, no PROJ. Build with `--locked`
+to reproduce the exact dependency versions recorded in `Cargo.lock`.
 
 Parallelism is a default feature of `strandline-core` and its output is
 bit-for-bit identical to the single-threaded path. Note that the CLI does not

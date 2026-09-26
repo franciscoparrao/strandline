@@ -10,8 +10,8 @@ authors = ["Francisco Parra O."]
 license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
-surtgis-core = { path = "../surtgis/crates/core" }
-surtgis-cloud = { path = "../surtgis/crates/cloud", features = ["native"] }
+surtgis-core = "1.4"
+surtgis-cloud = { version = "1.4", features = ["native"] }
 thiserror = "2"
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
