@@ -6,6 +6,11 @@ rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 description = "Satellite-derived shoreline extraction and analysis engine (core library)"
+repository.workspace = true
+homepage.workspace = true
+readme = "../README.md"
+keywords.workspace = true
+categories.workspace = true
 
 [features]
 default = ["parallel"]

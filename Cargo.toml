@@ -8,6 +8,10 @@ edition = "2021"
 rust-version = "1.75"
 authors = ["Francisco Parra O."]
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/franciscoparrao/strandline"
+homepage = "https://github.com/franciscoparrao/strandline"
+keywords = ["shoreline", "coastal", "remote-sensing", "geospatial", "satellite"]
+categories = ["science::geo", "science"]
 
 [workspace.dependencies]
 surtgis-core = "1.4"

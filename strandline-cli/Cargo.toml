@@ -6,6 +6,11 @@ rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 description = "Satellite-derived shoreline extraction and analysis engine (CLI)"
+repository.workspace = true
+homepage.workspace = true
+readme = "../README.md"
+keywords.workspace = true
+categories = ["science::geo", "command-line-utilities"]
 
 [[bin]]
 name = "strandline"
