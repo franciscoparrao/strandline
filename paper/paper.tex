@@ -165,10 +165,15 @@ implications and limits (Sects.~\ref{sec:discussion}--\ref{sec:limitations}).
 %============================================================
 strandline is a Rust workspace of two crates: a library, \texttt{strandline-core},
 that holds all numerical logic, and a command-line binary, \texttt{strandline-cli},
-that exposes it as composable subcommands (\texttt{extract}, \texttt{classify},
-\texttt{transects}, \texttt{intersect}, \texttt{tide}, \texttt{rates},
-\texttt{qc}, and the analysis tools \texttt{slope}, \texttt{stl} and
-\texttt{baseline}). Raster input/output, coordinate-reference-system handling and
+that exposes it as eleven composable subcommands: \texttt{fetch} for
+acquisition, \texttt{extract}, \texttt{profile} and \texttt{baseline} for
+shoreline extraction, \texttt{transects} and \texttt{intersect} for the
+measurement geometry, \texttt{tide} and \texttt{rates} for correction and change
+rates, and \texttt{slope}, \texttt{stl} and \texttt{satellite-weights} as
+analysis tools. Pixel classification and quality control are not separate
+subcommands but flags of the stages they belong to (\texttt{extract
+-{}-classify}, \texttt{rates -{}-qc}).
+Raster input/output, coordinate-reference-system handling and
 the underlying array substrate are provided by \texttt{surtgis-core}, a sibling
 geospatial engine; every other operation described below is implemented natively,
 so the compiled binary carries no Python, GDAL-binding or numerical-library
