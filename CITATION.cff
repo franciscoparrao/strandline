@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+title: "strandline: a dependency-light Rust engine for satellite-derived shoreline extraction and change analysis"
+message: "If you use this software or the derived datasets, please cite the manuscript below."
+type: software
+authors:
+  - given-names: Francisco
+    family-names: Parra
+    affiliation: "Department of Informatics Engineering, Universidad de Santiago de Chile, Santiago, Chile"
+    orcid: "https://orcid.org/0009-0006-0435-1854"
+repository-code: "https://github.com/franciscoparrao/strandline"
+license: MIT
+keywords:
+  - satellite-derived shorelines
+  - coastal erosion
+  - CoastSat
+  - Rust
+  - shoreline change rates

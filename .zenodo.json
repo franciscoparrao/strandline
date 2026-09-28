@@ -1,0 +1,27 @@
+{
+  "title": "strandline: a dependency-light Rust engine for satellite-derived shoreline extraction and change analysis",
+  "description": "Compiled engine that ports the CoastSat satellite-derived-shoreline method (water index, pixel classification, class-balanced Otsu threshold and sub-pixel marching-squares contour) into a single Rust binary, and extends it with native harmonic tidal synthesis, vectorised transect intersection and DSAS-style change rates with quality control. Each stage is validated against its reference (CoastSat, pyTMD, and the stored per-transect tables of a national erosion study). This archive contains the source, the test suite and the benchmark artefacts for six sites along the coast of Chile. Satellite scenes are not redistributed: they are public Landsat and Sentinel-2 products, retrievable with the included 'fetch' subcommand.",
+  "creators": [
+    {
+      "name": "Parra, Francisco",
+      "affiliation": "Department of Informatics Engineering, Universidad de Santiago de Chile, Santiago, Chile",
+      "orcid": "0009-0006-0435-1854"
+    }
+  ],
+  "keywords": [
+    "satellite-derived shorelines",
+    "coastal erosion",
+    "CoastSat",
+    "Rust",
+    "tidal correction",
+    "shoreline change rates",
+    "DSAS",
+    "Chile"
+  ],
+  "license": "MIT",
+  "upload_type": "software",
+  "access_right": "open",
+  "language": "eng",
+  "communities": [],
+  "related_identifiers": []
+}
