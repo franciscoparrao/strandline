@@ -158,5 +158,7 @@ and the manuscript in preparation.
 
 ## License
 
-Dual licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your
-option — the Rust ecosystem convention.
+GPL-3.0-only (see [LICENSE](LICENSE)). strandline embeds the trained pixel classifier of
+[CoastSat](https://github.com/kvos/CoastSat) (`strandline-core/models/coastsat_landsat_mlp.json`,
+exported from `NN_4classes_Landsat_new.pkl`) and follows its algorithm closely, so it is distributed
+under the same licence as CoastSat (GPL-3.0). Versions before v0.1.0 were labelled MIT OR Apache-2.0.

@@ -8,7 +8,9 @@ authors:
     affiliation: "Department of Informatics Engineering, Universidad de Santiago de Chile, Santiago, Chile"
     orcid: "https://orcid.org/0009-0006-0435-1854"
 repository-code: "https://github.com/franciscoparrao/strandline"
-license: MIT
+version: 0.1.0
+date-released: 2026-10-07
+license: GPL-3.0-only
 keywords:
   - satellite-derived shorelines
   - coastal erosion
