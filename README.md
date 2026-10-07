@@ -23,7 +23,7 @@ binary, parallelised across cores.
 ## Installing
 
 ```bash
-git clone <strandline-url> && cd strandline
+git clone https://github.com/franciscoparrao/strandline.git && cd strandline
 cargo build --release          # binary at target/release/strandline
 cargo install --path strandline-cli   # or install it on your PATH
 ```
