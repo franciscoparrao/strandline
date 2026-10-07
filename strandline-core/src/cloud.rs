@@ -340,7 +340,10 @@ mod tests {
         let b = band(vec![0.1; 6], 2, 3);
         assert!(nodata_mask(&[a, b], 0, 0, 1).is_none(), "shapes distintos");
         let a = band(vec![0.1; 4], 2, 2);
-        assert!(nodata_mask(&[a], 0, 1, 2).is_none(), "índice fuera de rango");
+        assert!(
+            nodata_mask(&[a], 0, 1, 2).is_none(),
+            "índice fuera de rango"
+        );
         assert!(nodata_mask(&[], 0, 1, 2).is_none(), "sin bandas");
     }
 }

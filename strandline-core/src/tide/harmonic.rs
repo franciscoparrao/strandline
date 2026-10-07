@@ -59,7 +59,10 @@ impl NodeCorrection {
                 1.0241 + 0.2863 * c1 + 0.0083 * c2 - 0.0015 * c3,
                 -17.74 * s1 + 0.68 * s2 - 0.04 * s3,
             ),
-            NodeCorrection::Mf => (1.0429 + 0.4135 * c1 - 0.004 * c2, -23.7 * s1 + 2.7 * s2 - 0.4 * s3),
+            NodeCorrection::Mf => (
+                1.0429 + 0.4135 * c1 - 0.004 * c2,
+                -23.7 * s1 + 2.7 * s2 - 0.4 * s3,
+            ),
             NodeCorrection::Mm => (1.0 - 0.1300 * c1 + 0.0013 * c2, 0.0),
             NodeCorrection::M4 => {
                 let (fm2, um2) = NodeCorrection::M2.factors(n_deg);
@@ -105,26 +108,91 @@ impl ConstituentDef {
 /// conocidas (ej. M2 = 2τ = 28.9841042°/h).
 pub const PRINCIPAL_CONSTITUENTS: &[ConstituentDef] = &[
     // Semidiurnos
-    ConstituentDef { name: "M2", doodson: [2.0, 0.0, 0.0, 0.0, 0.0], phase: 0.0, node: NodeCorrection::M2 },
-    ConstituentDef { name: "S2", doodson: [2.0, 2.0, -2.0, 0.0, 0.0], phase: 0.0, node: NodeCorrection::None },
-    ConstituentDef { name: "N2", doodson: [2.0, -1.0, 0.0, 1.0, 0.0], phase: 0.0, node: NodeCorrection::M2 },
-    ConstituentDef { name: "K2", doodson: [2.0, 2.0, 0.0, 0.0, 0.0], phase: 0.0, node: NodeCorrection::K2 },
+    ConstituentDef {
+        name: "M2",
+        doodson: [2.0, 0.0, 0.0, 0.0, 0.0],
+        phase: 0.0,
+        node: NodeCorrection::M2,
+    },
+    ConstituentDef {
+        name: "S2",
+        doodson: [2.0, 2.0, -2.0, 0.0, 0.0],
+        phase: 0.0,
+        node: NodeCorrection::None,
+    },
+    ConstituentDef {
+        name: "N2",
+        doodson: [2.0, -1.0, 0.0, 1.0, 0.0],
+        phase: 0.0,
+        node: NodeCorrection::M2,
+    },
+    ConstituentDef {
+        name: "K2",
+        doodson: [2.0, 2.0, 0.0, 0.0, 0.0],
+        phase: 0.0,
+        node: NodeCorrection::K2,
+    },
     // Diurnos. Offsets de fase verificados contra el argumento de
     // equilibrio G de pyTMD: K1 lleva +90°, el resto de los diurnos −90°.
-    ConstituentDef { name: "K1", doodson: [1.0, 1.0, 0.0, 0.0, 0.0], phase: 90.0, node: NodeCorrection::K1 },
-    ConstituentDef { name: "O1", doodson: [1.0, -1.0, 0.0, 0.0, 0.0], phase: -90.0, node: NodeCorrection::O1 },
-    ConstituentDef { name: "P1", doodson: [1.0, 1.0, -2.0, 0.0, 0.0], phase: -90.0, node: NodeCorrection::None },
-    ConstituentDef { name: "Q1", doodson: [1.0, -2.0, 0.0, 1.0, 0.0], phase: -90.0, node: NodeCorrection::O1 },
+    ConstituentDef {
+        name: "K1",
+        doodson: [1.0, 1.0, 0.0, 0.0, 0.0],
+        phase: 90.0,
+        node: NodeCorrection::K1,
+    },
+    ConstituentDef {
+        name: "O1",
+        doodson: [1.0, -1.0, 0.0, 0.0, 0.0],
+        phase: -90.0,
+        node: NodeCorrection::O1,
+    },
+    ConstituentDef {
+        name: "P1",
+        doodson: [1.0, 1.0, -2.0, 0.0, 0.0],
+        phase: -90.0,
+        node: NodeCorrection::None,
+    },
+    ConstituentDef {
+        name: "Q1",
+        doodson: [1.0, -2.0, 0.0, 1.0, 0.0],
+        phase: -90.0,
+        node: NodeCorrection::O1,
+    },
     // Largo período
-    ConstituentDef { name: "Mf", doodson: [0.0, 2.0, 0.0, 0.0, 0.0], phase: 0.0, node: NodeCorrection::Mf },
-    ConstituentDef { name: "Mm", doodson: [0.0, 1.0, 0.0, -1.0, 0.0], phase: 0.0, node: NodeCorrection::Mm },
-    ConstituentDef { name: "Ssa", doodson: [0.0, 0.0, 2.0, 0.0, 0.0], phase: 0.0, node: NodeCorrection::None },
+    ConstituentDef {
+        name: "Mf",
+        doodson: [0.0, 2.0, 0.0, 0.0, 0.0],
+        phase: 0.0,
+        node: NodeCorrection::Mf,
+    },
+    ConstituentDef {
+        name: "Mm",
+        doodson: [0.0, 1.0, 0.0, -1.0, 0.0],
+        phase: 0.0,
+        node: NodeCorrection::Mm,
+    },
+    ConstituentDef {
+        name: "Ssa",
+        doodson: [0.0, 0.0, 2.0, 0.0, 0.0],
+        phase: 0.0,
+        node: NodeCorrection::None,
+    },
     // Sa: argumento h − ps (convención GOT/pyTMD, la misma de los demás
     // constituyentes de esta tabla). Con [0,0,1,0,0] (solo h) la fase de la
     // componente anual queda ~283° corrida — bug B2 de la auditoría 2026-07.
-    ConstituentDef { name: "Sa", doodson: [0.0, 0.0, 1.0, 0.0, -1.0], phase: 0.0, node: NodeCorrection::None },
+    ConstituentDef {
+        name: "Sa",
+        doodson: [0.0, 0.0, 1.0, 0.0, -1.0],
+        phase: 0.0,
+        node: NodeCorrection::None,
+    },
     // Somera
-    ConstituentDef { name: "M4", doodson: [4.0, 0.0, 0.0, 0.0, 0.0], phase: 0.0, node: NodeCorrection::M4 },
+    ConstituentDef {
+        name: "M4",
+        doodson: [4.0, 0.0, 0.0, 0.0, 0.0],
+        phase: 0.0,
+        node: NodeCorrection::M4,
+    },
 ];
 
 /// Amplitud (m) y fase de Greenwich (grados) local de un constituyente.
@@ -264,7 +332,10 @@ mod tests {
             ("M4", 57.9682084),
         ];
         for (name, want) in expected {
-            let def = PRINCIPAL_CONSTITUENTS.iter().find(|d| d.name == name).unwrap();
+            let def = PRINCIPAL_CONSTITUENTS
+                .iter()
+                .find(|d| d.name == name)
+                .unwrap();
             let got = speed_of(def);
             assert!((got - want).abs() < 1e-3, "{name}: got {got}, want {want}");
         }
@@ -275,7 +346,11 @@ mod tests {
         // Un tren M2 puro debe tener período ≈ 12.42 h. Verificamos que la
         // elevación en t y t+12.42h coincide de cerca.
         let (pred, _) = TidePredictor::new(
-            &[Constituent { name: "M2", amplitude: 1.0, phase_g: 0.0 }],
+            &[Constituent {
+                name: "M2",
+                amplitude: 1.0,
+                phase_g: 0.0,
+            }],
             0.0,
         );
         let mjd0 = 58858.5;
@@ -317,7 +392,10 @@ mod tests {
         let l = mean_longitudes(mjd);
         let tau = lunar_time_tau(mjd, &l);
         for (name, g, f_ref, u_ref) in ref_data {
-            let def = PRINCIPAL_CONSTITUENTS.iter().find(|d| d.name == name).unwrap();
+            let def = PRINCIPAL_CONSTITUENTS
+                .iter()
+                .find(|d| d.name == name)
+                .unwrap();
             let v0 = norm360(def.equilibrium(tau, &l));
             let (f, u) = def.node.factors(l.n);
             // El argumento de equilibrio V0 debe coincidir con pyTMD muy de
@@ -348,14 +426,27 @@ mod tests {
         // omisión original escondió el bug B2 (auditoría 2026-07).
         // (name, amplitud m, fase Greenwich grados)
         let cons = [
-            ("M2", 0.42, 95.0), ("S2", 0.14, 130.0), ("N2", 0.10, 78.0), ("K2", 0.04, 128.0),
-            ("K1", 0.15, 330.0), ("O1", 0.10, 300.0), ("P1", 0.05, 325.0), ("Q1", 0.02, 285.0),
-            ("Mf", 0.02, 100.0), ("Mm", 0.015, 80.0), ("Ssa", 0.03, 200.0), ("Sa", 0.04, 150.0),
+            ("M2", 0.42, 95.0),
+            ("S2", 0.14, 130.0),
+            ("N2", 0.10, 78.0),
+            ("K2", 0.04, 128.0),
+            ("K1", 0.15, 330.0),
+            ("O1", 0.10, 300.0),
+            ("P1", 0.05, 325.0),
+            ("Q1", 0.02, 285.0),
+            ("Mf", 0.02, 100.0),
+            ("Mm", 0.015, 80.0),
+            ("Ssa", 0.03, 200.0),
+            ("Sa", 0.04, 150.0),
             ("M4", 0.01, 60.0),
         ];
         let constituents: Vec<Constituent> = cons
             .iter()
-            .map(|&(name, amplitude, phase_g)| Constituent { name, amplitude, phase_g })
+            .map(|&(name, amplitude, phase_g)| Constituent {
+                name,
+                amplitude,
+                phase_g,
+            })
             .collect();
         let (pred, unknown) = TidePredictor::new(&constituents, 0.0);
         assert!(unknown.is_empty());
@@ -379,13 +470,20 @@ mod tests {
         // factores nodales Schureman en vez de las tablas GOT —
         // despreciable para la corrección de shorelines (1 mm de marea ≈
         // 1 cm horizontal con pendiente 0.1, << pixel de 15 m).
-        assert!(max_err < 0.003, "error máximo de predicción: {max_err:.4} m");
+        assert!(
+            max_err < 0.003,
+            "error máximo de predicción: {max_err:.4} m"
+        );
     }
 
     #[test]
     fn unknown_constituents_reported() {
         let (_, unknown) = TidePredictor::new(
-            &[Constituent { name: "ZZ9", amplitude: 1.0, phase_g: 0.0 }],
+            &[Constituent {
+                name: "ZZ9",
+                amplitude: 1.0,
+                phase_g: 0.0,
+            }],
             0.0,
         );
         assert_eq!(unknown, vec!["ZZ9".to_string()]);

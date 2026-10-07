@@ -40,7 +40,10 @@ fn extract_without_classifier_matches_golden() {
     for line in &shoreline.lines {
         for &(x, y) in line {
             assert!((260000.0..280000.0).contains(&x), "x fuera de rango: {x}");
-            assert!((-3660000.0..-3640000.0).contains(&y), "y fuera de rango: {y}");
+            assert!(
+                (-3660000.0..-3640000.0).contains(&y),
+                "y fuera de rango: {y}"
+            );
         }
     }
 }
@@ -78,7 +81,9 @@ fn extract_coastsat_compat_matches_golden() {
     // referencia (min_beach_area = 4500) el cociente es entero exacto
     // (20.0 a 15 m, 5.0 a 30 m) y ambas funciones coinciden: ninguna de las
     // validaciones contra CoastSat/pickles se ve afectada por el cambio.
-    let cls = shoreline.classification.expect("sin resumen de clasificación");
+    let cls = shoreline
+        .classification
+        .expect("sin resumen de clasificación");
     assert_eq!(cls.sand_px, 352);
     assert_eq!(cls.whitewater_px, 39);
     assert_eq!(cls.water_px, 4610);
@@ -91,8 +96,8 @@ fn extract_coastsat_compat_matches_golden() {
 /// y se comprueba que los vértices pegados al borde de la franja se eliminan.
 #[test]
 fn nodata_filter_removes_vertices_along_a_scan_gap() {
-    use surtgis_core::io::{read_geotiff_bands, write_geotiff_stack};
     use surtgis_core::io::GeoTiffOptions;
+    use surtgis_core::io::{read_geotiff_bands, write_geotiff_stack};
 
     let mut bands = read_geotiff_bands::<f32, _>(&fixture("vina_2020-01-10_96px_ms.tif"))
         .expect("leyendo fixture");
@@ -111,12 +116,21 @@ fn nodata_filter_removes_vertices_along_a_scan_gap() {
     let refs: Vec<&_> = bands.iter().collect();
     write_geotiff_stack(&refs, None, &tmp, &GeoTiffOptions::default()).expect("escribiendo escena");
 
-    let with_filter = extract_shoreline(&tmp, Some(&fixture("vina_2020-01-10_96px_mask.tif")),
-        &ExtractParams::default())
-        .expect("extracción con filtro");
-    let without = extract_shoreline(&tmp, Some(&fixture("vina_2020-01-10_96px_mask.tif")),
-        &ExtractParams { dist_nodata_m: 0.0, ..Default::default() })
-        .expect("extracción sin filtro");
+    let with_filter = extract_shoreline(
+        &tmp,
+        Some(&fixture("vina_2020-01-10_96px_mask.tif")),
+        &ExtractParams::default(),
+    )
+    .expect("extracción con filtro");
+    let without = extract_shoreline(
+        &tmp,
+        Some(&fixture("vina_2020-01-10_96px_mask.tif")),
+        &ExtractParams {
+            dist_nodata_m: 0.0,
+            ..Default::default()
+        },
+    )
+    .expect("extracción sin filtro");
 
     let n_pts = |s: &strandline_core::shoreline::Shoreline| -> usize {
         s.lines.iter().map(|l| l.len()).sum()
@@ -154,7 +168,10 @@ fn nodata_filter_removes_vertices_along_a_scan_gap() {
         .flatten()
         .filter(|&&(x, _)| (x - gap_x).abs() < 30.0)
         .count();
-    assert!(close_without > 0, "sin filtro debería haber vértices junto al gap");
+    assert!(
+        close_without > 0,
+        "sin filtro debería haber vértices junto al gap"
+    );
 
     let _ = std::fs::remove_file(&tmp);
 }

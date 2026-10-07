@@ -8,22 +8,26 @@ use std::path::PathBuf;
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
+use strandline_core::cloud::MaskKind;
 use strandline_core::qc::{self, QcCriteria};
 use strandline_core::rates::{compute_rates, decimal_year_from_mjd, despike};
+use strandline_core::shoreline::prepare_scene;
+use strandline_core::slope::{estimate_beach_slope, SlopeSettings};
 use strandline_core::stl::decompose as stl_decompose;
+use strandline_core::subpixel::{fit_profiles, refine_line_subpixel, ProfileSettings};
 use strandline_core::tide::{self, harmonic::TidePredictor, TideCorrection};
 use strandline_core::transects::{
     compute_intersections, generate_transects, smooth_polyline, transect_name,
     IntersectionSettings, Transect,
 };
-use strandline_core::cloud::MaskKind;
-use strandline_core::shoreline::prepare_scene;
-use strandline_core::slope::{estimate_beach_slope, SlopeSettings};
-use strandline_core::subpixel::{fit_profiles, refine_line_subpixel, ProfileSettings};
 use strandline_core::{extract_shoreline, ExtractParams};
 
 #[derive(Parser)]
-#[command(name = "strandline", version, about = "Satellite-derived shoreline analysis engine")]
+#[command(
+    name = "strandline",
+    version,
+    about = "Satellite-derived shoreline analysis engine"
+)]
 struct Cli {
     /// Trata como error cualquier fila de CSV descartada al leer (fecha no
     /// parseable, campos faltantes, valor no numérico). Por defecto se
@@ -537,8 +541,14 @@ fn read_tide_correction(
         .with_context(|| format!("leyendo corrección mareal {}", path.display()))?;
     let mut lines = text.lines().filter(|l| !l.trim().is_empty());
     let header = csv_header(lines.next().unwrap_or_default());
-    let idi = header.iter().position(|c| c == "shoreline_id").context("falta 'shoreline_id'")?;
-    let ci = header.iter().position(|c| c == "correction_m").context("falta 'correction_m'")?;
+    let idi = header
+        .iter()
+        .position(|c| c == "shoreline_id")
+        .context("falta 'shoreline_id'")?;
+    let ci = header
+        .iter()
+        .position(|c| c == "correction_m")
+        .context("falta 'correction_m'")?;
     let mut d = CsvDiscards::new(path.display().to_string());
     let mut map = std::collections::HashMap::new();
     for l in lines {
@@ -570,9 +580,18 @@ fn read_date_satnames(
         .with_context(|| format!("leyendo fechas/satélite {}", path.display()))?;
     let mut lines = text.lines().filter(|l| !l.trim().is_empty());
     let header = csv_header(lines.next().unwrap_or_default());
-    let idi = header.iter().position(|c| c == "shoreline_id").context("falta 'shoreline_id'")?;
-    let di = header.iter().position(|c| c == "date").context("falta 'date'")?;
-    let si = header.iter().position(|c| c == "satname").context("falta 'satname'")?;
+    let idi = header
+        .iter()
+        .position(|c| c == "shoreline_id")
+        .context("falta 'shoreline_id'")?;
+    let di = header
+        .iter()
+        .position(|c| c == "date")
+        .context("falta 'date'")?;
+    let si = header
+        .iter()
+        .position(|c| c == "satname")
+        .context("falta 'satname'")?;
 
     let mut d = CsvDiscards::new(path.display().to_string());
     let mut map = std::collections::HashMap::new();
@@ -587,7 +606,10 @@ fn read_date_satnames(
             d.record("fecha no parseable", f[di]);
             continue;
         };
-        map.insert(f[idi].to_string(), (decimal_year_from_mjd(mjd), f[si].to_string()));
+        map.insert(
+            f[idi].to_string(),
+            (decimal_year_from_mjd(mjd), f[si].to_string()),
+        );
     }
     d.finish(strict)?;
     Ok(map)
@@ -603,8 +625,14 @@ fn read_satellite_weight_table(
         .with_context(|| format!("leyendo tabla de pesos por satélite {}", path.display()))?;
     let mut lines = text.lines().filter(|l| !l.trim().is_empty());
     let header = csv_header(lines.next().unwrap_or_default());
-    let si = header.iter().position(|c| c == "satname").context("falta 'satname'")?;
-    let wi = header.iter().position(|c| c == "weight").context("falta 'weight'")?;
+    let si = header
+        .iter()
+        .position(|c| c == "satname")
+        .context("falta 'satname'")?;
+    let wi = header
+        .iter()
+        .position(|c| c == "weight")
+        .context("falta 'weight'")?;
     let mut d = CsvDiscards::new(path.display().to_string());
     let mut map = std::collections::HashMap::new();
     for l in lines {
@@ -635,8 +663,14 @@ fn read_date_weights(path: &PathBuf, strict: bool) -> anyhow::Result<DateWeights
         .with_context(|| format!("leyendo fechas {}", path.display()))?;
     let mut lines = text.lines().filter(|l| !l.trim().is_empty());
     let header = csv_header(lines.next().unwrap_or_default());
-    let idi = header.iter().position(|c| c == "shoreline_id").context("falta 'shoreline_id'")?;
-    let di = header.iter().position(|c| c == "date").context("falta 'date'")?;
+    let idi = header
+        .iter()
+        .position(|c| c == "shoreline_id")
+        .context("falta 'shoreline_id'")?;
+    let di = header
+        .iter()
+        .position(|c| c == "date")
+        .context("falta 'date'")?;
     let wi = header.iter().position(|c| c == "weight");
 
     let mut d = CsvDiscards::new(path.display().to_string());
@@ -746,9 +780,18 @@ fn read_shorelines_csv(path: &PathBuf, strict: bool) -> anyhow::Result<Shoreline
         .with_context(|| format!("leyendo shorelines {}", path.display()))?;
     let mut lines = text.lines().filter(|l| !l.trim().is_empty());
     let header = csv_header(lines.next().unwrap_or_default());
-    let idi = header.iter().position(|c| c == "shoreline_id").context("falta 'shoreline_id'")?;
-    let ei = header.iter().position(|c| c == "easting").context("falta 'easting'")?;
-    let ni = header.iter().position(|c| c == "northing").context("falta 'northing'")?;
+    let idi = header
+        .iter()
+        .position(|c| c == "shoreline_id")
+        .context("falta 'shoreline_id'")?;
+    let ei = header
+        .iter()
+        .position(|c| c == "easting")
+        .context("falta 'easting'")?;
+    let ni = header
+        .iter()
+        .position(|c| c == "northing")
+        .context("falta 'northing'")?;
 
     let mut d = CsvDiscards::new(path.display().to_string());
     let mut ids: Vec<String> = Vec::new();
@@ -930,7 +973,10 @@ fn main() -> anyhow::Result<()> {
             skip_l7_slc,
             out_dir,
         } => {
-            anyhow::ensure!(bbox.len() == 4, "bbox necesita 4 valores: oeste,sur,este,norte");
+            anyhow::ensure!(
+                bbox.len() == 4,
+                "bbox necesita 4 valores: oeste,sur,este,norte"
+            );
             let n = fetch::run(
                 &collection,
                 [bbox[0], bbox[1], bbox[2], bbox[3]],
@@ -983,7 +1029,8 @@ fn main() -> anyhow::Result<()> {
                 .with_context(|| format!("contorneando para semillas {}", ms.display()))?;
             let combined_line: Vec<(f64, f64)> =
                 contour_shoreline.lines.into_iter().flatten().collect();
-            let seed_raw = compute_intersections(&[combined_line], &ts, &IntersectionSettings::default());
+            let seed_raw =
+                compute_intersections(&[combined_line], &ts, &IntersectionSettings::default());
             let seeds: Vec<Option<f64>> = seed_raw
                 .iter()
                 .map(|v| v.first().copied().filter(|x| x.is_finite()))
@@ -995,7 +1042,13 @@ fn main() -> anyhow::Result<()> {
                 ..Default::default()
             };
             let t0 = std::time::Instant::now();
-            let fits = fit_profiles(&scene.mndwi, &ts, scene.level_textbook as f64, &seeds, &settings);
+            let fits = fit_profiles(
+                &scene.mndwi,
+                &ts,
+                scene.level_textbook as f64,
+                &seeds,
+                &settings,
+            );
             let elapsed = t0.elapsed().as_secs_f64();
 
             let mut out = String::from(
@@ -1012,10 +1065,7 @@ fn main() -> anyhow::Result<()> {
                     .sqrt();
                     out.push_str(&format!(
                         "{},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.6},{}\n",
-                        ts_names
-                            .get(i)
-                            .cloned()
-                            .unwrap_or_else(|| transect_name(i)),
+                        ts_names.get(i).cloned().unwrap_or_else(|| transect_name(i)),
                         f.chainage_m,
                         f.world.0,
                         f.world.1,
@@ -1122,9 +1172,11 @@ fn main() -> anyhow::Result<()> {
             std::fs::write(&output, out)
                 .with_context(|| format!("escribiendo {}", output.display()))?;
 
-            let (tmin, tmax) = tides.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(mn, mx), &t| {
-                (mn.min(t), mx.max(t))
-            });
+            let (tmin, tmax) = tides
+                .iter()
+                .fold((f64::INFINITY, f64::NEG_INFINITY), |(mn, mx), &t| {
+                    (mn.min(t), mx.max(t))
+                });
             eprintln!(
                 "{} fechas, {} constituyentes; marea [{:.3}, {:.3}] m -> {}",
                 mjds.len(),
@@ -1170,10 +1222,18 @@ fn main() -> anyhow::Result<()> {
             let mut ms_paths: Vec<PathBuf> = std::fs::read_dir(&dir)
                 .with_context(|| format!("leyendo directorio {}", dir.display()))?
                 .filter_map(|e| e.ok().map(|e| e.path()))
-                .filter(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.ends_with("_ms.tif")))
+                .filter(|p| {
+                    p.file_name()
+                        .and_then(|n| n.to_str())
+                        .is_some_and(|n| n.ends_with("_ms.tif"))
+                })
                 .collect();
             ms_paths.sort();
-            anyhow::ensure!(!ms_paths.is_empty(), "sin escenas *_ms.tif en {}", dir.display());
+            anyhow::ensure!(
+                !ms_paths.is_empty(),
+                "sin escenas *_ms.tif en {}",
+                dir.display()
+            );
 
             let mut candidates = Vec::new();
             let mut paths_by_label: std::collections::HashMap<String, (PathBuf, Option<PathBuf>)> =
@@ -1194,7 +1254,8 @@ fn main() -> anyhow::Result<()> {
                                 "  {label}: {} fragmentos, {:.0} m el más largo",
                                 cand.n_fragments, cand.arc_length_m
                             );
-                            paths_by_label.insert(label.clone(), (ms.clone(), mask_opt.map(PathBuf::from)));
+                            paths_by_label
+                                .insert(label.clone(), (ms.clone(), mask_opt.map(PathBuf::from)));
                             candidates.push(cand);
                         } else {
                             eprintln!("  {label}: sin líneas extraídas, omitida");
@@ -1203,7 +1264,10 @@ fn main() -> anyhow::Result<()> {
                     Err(e) => eprintln!("  {label}: extract falló ({e:#}), omitida"),
                 }
             }
-            anyhow::ensure!(!candidates.is_empty(), "ninguna escena produjo una shoreline utilizable");
+            anyhow::ensure!(
+                !candidates.is_empty(),
+                "ninguna escena produjo una shoreline utilizable"
+            );
 
             let mut chosen = strandline_core::baseline::select_baseline(candidates)
                 .context("selección de línea base falló inesperadamente")?;
@@ -1211,8 +1275,9 @@ fn main() -> anyhow::Result<()> {
                 let (ms, mask_opt) = paths_by_label
                     .get(&chosen.label)
                     .expect("la escena ganadora debe estar en paths_by_label");
-                let scene = prepare_scene(ms, mask_opt.as_deref(), &params)
-                    .with_context(|| format!("preparando {} para refinamiento subpixel", ms.display()))?;
+                let scene = prepare_scene(ms, mask_opt.as_deref(), &params).with_context(|| {
+                    format!("preparando {} para refinamiento subpixel", ms.display())
+                })?;
                 chosen.line = refine_line_subpixel(
                     &scene.mndwi,
                     &chosen.line,
@@ -1228,7 +1293,11 @@ fn main() -> anyhow::Result<()> {
                 chosen.label,
                 chosen.n_fragments,
                 chosen.arc_length_m,
-                if subpixel_refine { ", refinada subpixel" } else { "" },
+                if subpixel_refine {
+                    ", refinada subpixel"
+                } else {
+                    ""
+                },
                 output.display()
             );
         }
@@ -1319,8 +1388,14 @@ fn main() -> anyhow::Result<()> {
                 .with_context(|| format!("leyendo mareas {}", tides.display()))?;
             let mut lines = text.lines().filter(|l| !l.trim().is_empty());
             let header = csv_header(lines.next().unwrap_or_default());
-            let idi = header.iter().position(|c| c == "shoreline_id").context("falta 'shoreline_id'")?;
-            let ti = header.iter().position(|c| c == "tide_m").context("falta 'tide_m'")?;
+            let idi = header
+                .iter()
+                .position(|c| c == "shoreline_id")
+                .context("falta 'shoreline_id'")?;
+            let ti = header
+                .iter()
+                .position(|c| c == "tide_m")
+                .context("falta 'tide_m'")?;
             let mut dt = CsvDiscards::new(tides.display().to_string());
             let mut tide_by_id = std::collections::HashMap::new();
             for l in lines {
@@ -1368,10 +1443,11 @@ fn main() -> anyhow::Result<()> {
                     d.record("chainage no numérico", f[2]);
                     continue;
                 };
-                by_transect
-                    .entry(f[0].to_string())
-                    .or_default()
-                    .push((t_year * 365.2425, ch, tide));
+                by_transect.entry(f[0].to_string()).or_default().push((
+                    t_year * 365.2425,
+                    ch,
+                    tide,
+                ));
             }
             d.finish(cli.strict)?;
 
@@ -1466,8 +1542,14 @@ fn main() -> anyhow::Result<()> {
             // observación está en la tabla; si no, cae al peso de `dates`
             // (o 1.0 por default) sin romper el flujo existente.
             let (sat_by_shoreline, sat_weight_table) = match &satellite_weights {
-                Some(p) => (read_date_satnames(&dates, cli.strict)?, read_satellite_weight_table(p, cli.strict)?),
-                None => (std::collections::HashMap::new(), std::collections::HashMap::new()),
+                Some(p) => (
+                    read_date_satnames(&dates, cli.strict)?,
+                    read_satellite_weight_table(p, cli.strict)?,
+                ),
+                None => (
+                    std::collections::HashMap::new(),
+                    std::collections::HashMap::new(),
+                ),
             };
             // agrupar chainages por transecto, preservando (t_year, chainage, weight)
             let text = std::fs::read_to_string(&intersections)
@@ -1619,7 +1701,10 @@ fn main() -> anyhow::Result<()> {
                     d.record("chainage no numérico", f[2]);
                     continue;
                 };
-                by_transect.entry(f[0].to_string()).or_default().push((t_year, chainage));
+                by_transect
+                    .entry(f[0].to_string())
+                    .or_default()
+                    .push((t_year, chainage));
             }
             d.finish(cli.strict)?;
 
@@ -1705,10 +1790,11 @@ fn main() -> anyhow::Result<()> {
                     d.record("chainage no finito (QC)", f[2]);
                     continue;
                 }
-                by_transect
-                    .entry(f[0].to_string())
-                    .or_default()
-                    .push((*t_year, chainage, sat.clone()));
+                by_transect.entry(f[0].to_string()).or_default().push((
+                    *t_year,
+                    chainage,
+                    sat.clone(),
+                ));
             }
             d.finish(cli.strict)?;
 
@@ -1719,13 +1805,23 @@ fn main() -> anyhow::Result<()> {
             );
             let mut out = String::from("satname,n_obs,std_m,weight\n");
             for w in &weights {
-                out.push_str(&format!("{},{},{:.4},{:.6}\n", w.satname, w.n_obs, w.std_m, w.weight));
+                out.push_str(&format!(
+                    "{},{},{:.4},{:.6}\n",
+                    w.satname, w.n_obs, w.std_m, w.weight
+                ));
             }
             std::fs::write(&output, out)
                 .with_context(|| format!("escribiendo {}", output.display()))?;
-            eprintln!("pesos calibrados para {} satélites -> {}", weights.len(), output.display());
+            eprintln!(
+                "pesos calibrados para {} satélites -> {}",
+                weights.len(),
+                output.display()
+            );
             for w in &weights {
-                eprintln!("  {}: n={} std={:.2}m peso={:.4}", w.satname, w.n_obs, w.std_m, w.weight);
+                eprintln!(
+                    "  {}: n={} std={:.2}m peso={:.4}",
+                    w.satname, w.n_obs, w.std_m, w.weight
+                );
             }
         }
     }

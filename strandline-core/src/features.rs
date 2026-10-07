@@ -90,7 +90,10 @@ impl<'a> FeatureBank<'a> {
 /// en orden row-major. Retenido para pruebas y usos que necesiten la matriz
 /// completa; el clasificador usa [`FeatureBank`] directamente para evitar
 /// materializarla.
-pub fn compute_features(bands: &[Raster<f32>], cloud: Option<&Array2<bool>>) -> Result<Array2<f32>> {
+pub fn compute_features(
+    bands: &[Raster<f32>],
+    cloud: Option<&Array2<bool>>,
+) -> Result<Array2<f32>> {
     let bank = FeatureBank::build(bands, cloud)?;
     let (rows, cols) = bank.dims();
     let mut out = Array2::<f32>::from_elem((rows * cols, N_FEATURES), f32::NAN);

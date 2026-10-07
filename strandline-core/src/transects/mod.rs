@@ -7,9 +7,7 @@
 //! en segundos. Aquí se porta a Rust con paralelismo opcional (rayon).
 
 mod intersect;
-pub use intersect::{
-    compute_intersections, IntersectionSettings, MultipleIntersection,
-};
+pub use intersect::{compute_intersections, IntersectionSettings, MultipleIntersection};
 
 /// Un transecto costero: segmento desde `origin` (extremo tierra) hasta
 /// `end` (extremo mar), en coordenadas proyectadas (mismo CRS que las
@@ -69,12 +67,13 @@ fn resample_by_arclength(line: &[(f64, f64)], spacing: f64) -> Vec<(f64, f64)> {
             seg += 1;
         }
         let (d0, d1) = (cum[seg], cum[seg + 1]);
-        let frac = if d1 > d0 { (target - d0) / (d1 - d0) } else { 0.0 };
+        let frac = if d1 > d0 {
+            (target - d0) / (d1 - d0)
+        } else {
+            0.0
+        };
         let (p0, p1) = (line[seg], line[seg + 1]);
-        out.push((
-            p0.0 + frac * (p1.0 - p0.0),
-            p0.1 + frac * (p1.1 - p0.1),
-        ));
+        out.push((p0.0 + frac * (p1.0 - p0.0), p0.1 + frac * (p1.1 - p0.1)));
     }
     out
 }

@@ -70,7 +70,7 @@ fn contour_intersection_estimate(raster: &Raster<f32>, transect: &Transect) -> O
 #[test]
 fn profile_fit_vs_contour_intersection_realistic() {
     let noise = 0.08; // σ del MNDWI en zona de swash
-    // transecto diagonal (~27° respecto a la grilla), tierra oeste → mar este
+                      // transecto diagonal (~27° respecto a la grilla), tierra oeste → mar este
     let transect = Transect {
         origin: (75.0, -300.0),
         end: (595.0, -560.0),
@@ -97,8 +97,16 @@ fn profile_fit_vs_contour_intersection_realistic() {
             }
         }
     }
-    assert!(err_contour.len() >= 220, "contour: {} casos", err_contour.len());
-    assert!(err_profile.len() >= 220, "profile: {} casos", err_profile.len());
+    assert!(
+        err_contour.len() >= 220,
+        "contour: {} casos",
+        err_contour.len()
+    );
+    assert!(
+        err_profile.len() >= 220,
+        "profile: {} casos",
+        err_profile.len()
+    );
 
     let rmse = |e: &[f64]| (e.iter().map(|v| v * v).sum::<f64>() / e.len() as f64).sqrt();
     let bias = |e: &[f64]| e.iter().sum::<f64>() / e.len() as f64;

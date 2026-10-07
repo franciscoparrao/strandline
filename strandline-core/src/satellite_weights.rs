@@ -174,8 +174,14 @@ mod tests {
             );
         }
         let weights = calibrate(&by_transect, 10);
-        let l8 = weights.iter().find(|w| w.satname == "L8").expect("L8 presente");
-        let l5 = weights.iter().find(|w| w.satname == "L5").expect("L5 presente");
+        let l8 = weights
+            .iter()
+            .find(|w| w.satname == "L8")
+            .expect("L8 presente");
+        let l5 = weights
+            .iter()
+            .find(|w| w.satname == "L5")
+            .expect("L5 presente");
         assert!(
             l8.weight > l5.weight,
             "L8 (menos ruido) debería tener mayor peso: L8={} L5={}",
@@ -196,7 +202,10 @@ mod tests {
             synthetic_transect(1.0, 5, &[("L8", 1.0)], 7),
         );
         let weights = calibrate(&by_transect, 10);
-        assert!(weights.is_empty(), "transecto con <10 obs no debería aportar pesos");
+        assert!(
+            weights.is_empty(),
+            "transecto con <10 obs no debería aportar pesos"
+        );
     }
 
     #[test]

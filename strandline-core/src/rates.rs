@@ -259,7 +259,7 @@ mod tests {
         assert!((r.sce - 27.0).abs() < 1e-9);
         assert!((r.lrr_r2 - 1.0).abs() < 1e-9);
         assert!(r.lrr_ci95 < 1e-6); // ajuste perfecto → sin incertidumbre
-        // WLR con pesos uniformes coincide con LRR
+                                    // WLR con pesos uniformes coincide con LRR
         assert!((r.wlr - r.lrr).abs() < 1e-9);
     }
 

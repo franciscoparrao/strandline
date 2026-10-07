@@ -132,9 +132,7 @@ pub fn read_csv(path: impl AsRef<Path>, time_col: &str, elev_col: &str) -> Resul
 /// Lee constituyentes de marea locales desde CSV. Columnas por nombre:
 /// `name` (nombre estándar, ej. M2), `amplitude` (m), `phase_g` (fase de
 /// Greenwich, grados). Devuelve `(name, amplitude, phase_g)` por fila.
-pub fn read_constituents_csv(
-    path: impl AsRef<Path>,
-) -> Result<Vec<(String, f64, f64)>> {
+pub fn read_constituents_csv(path: impl AsRef<Path>) -> Result<Vec<(String, f64, f64)>> {
     let text = fs::read_to_string(path.as_ref()).map_err(|source| StrandlineError::Io {
         path: path.as_ref().display().to_string(),
         source,
@@ -170,10 +168,18 @@ pub fn read_constituents_csv(
             )));
         }
         let amp: f64 = f[ai].parse().map_err(|_| {
-            StrandlineError::Parse(format!("amplitud inválida en línea {}: '{}'", lineno + 1, f[ai]))
+            StrandlineError::Parse(format!(
+                "amplitud inválida en línea {}: '{}'",
+                lineno + 1,
+                f[ai]
+            ))
         })?;
         let ph: f64 = f[pi].parse().map_err(|_| {
-            StrandlineError::Parse(format!("fase inválida en línea {}: '{}'", lineno + 1, f[pi]))
+            StrandlineError::Parse(format!(
+                "fase inválida en línea {}: '{}'",
+                lineno + 1,
+                f[pi]
+            ))
         })?;
         if !amp.is_finite() || !ph.is_finite() {
             return Err(StrandlineError::Parse(format!(
@@ -186,10 +192,7 @@ pub fn read_constituents_csv(
         // un constituyente repetido se sumaría dos veces en `predict`: para
         // M2 en Chile central eso son ~0.4 m de marea espuria (~4 m de
         // corrección horizontal) sin ninguna advertencia
-        if let Some((prev, _, _)) = out
-            .iter()
-            .find(|(n, _, _)| n.eq_ignore_ascii_case(f[ni]))
-        {
+        if let Some((prev, _, _)) = out.iter().find(|(n, _, _)| n.eq_ignore_ascii_case(f[ni])) {
             return Err(StrandlineError::Parse(format!(
                 "constituyente duplicado en línea {}: '{}' ya aparece como '{}'",
                 lineno + 1,
@@ -420,11 +423,7 @@ mod tests {
     #[test]
     fn constituyente_duplicado_se_rechaza() {
         let p = std::env::temp_dir().join("strandline_const_dup.csv");
-        std::fs::write(
-            &p,
-            "name,amplitude,phase_g\nM2,0.42,100.0\nm2,0.42,100.0\n",
-        )
-        .unwrap();
+        std::fs::write(&p, "name,amplitude,phase_g\nM2,0.42,100.0\nm2,0.42,100.0\n").unwrap();
         let err = read_constituents_csv(&p).unwrap_err();
         assert!(
             format!("{err}").contains("duplicado"),

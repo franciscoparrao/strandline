@@ -113,7 +113,11 @@ fn frequency_grid(t: &[f64], oversample: f64) -> Vec<f64> {
     }
     let span = t[t.len() - 1] - t[0];
     // dt mediano
-    let mut dts: Vec<f64> = t.windows(2).map(|w| w[1] - w[0]).filter(|d| *d > 0.0).collect();
+    let mut dts: Vec<f64> = t
+        .windows(2)
+        .map(|w| w[1] - w[0])
+        .filter(|d| *d > 0.0)
+        .collect();
     if dts.is_empty() {
         return Vec::new();
     }
@@ -233,9 +237,7 @@ pub fn estimate_beach_slope(
     let trend = if stt > 0.0 { stx / stt } else { 0.0 };
     let x_dt: Vec<f64> = (0..n).map(|i| x[i] - trend * (t[i] - tbar)).collect();
 
-    let band_energy = |series: &[f64]| -> f64 {
-        lomb_scargle(&t, series, &band).iter().sum()
-    };
+    let band_energy = |series: &[f64]| -> f64 { lomb_scargle(&t, series, &band).iter().sum() };
     let e_uncorrected = band_energy(&x_dt);
     if e_uncorrected <= 0.0 {
         return None;
@@ -291,10 +293,26 @@ mod tests {
         use crate::tide::harmonic::{Constituent, TidePredictor};
         let (pred, _) = TidePredictor::new(
             &[
-                Constituent { name: "M2", amplitude: 0.42, phase_g: 95.0 },
-                Constituent { name: "S2", amplitude: 0.14, phase_g: 130.0 },
-                Constituent { name: "K1", amplitude: 0.15, phase_g: 330.0 },
-                Constituent { name: "O1", amplitude: 0.10, phase_g: 300.0 },
+                Constituent {
+                    name: "M2",
+                    amplitude: 0.42,
+                    phase_g: 95.0,
+                },
+                Constituent {
+                    name: "S2",
+                    amplitude: 0.14,
+                    phase_g: 130.0,
+                },
+                Constituent {
+                    name: "K1",
+                    amplitude: 0.15,
+                    phase_g: 330.0,
+                },
+                Constituent {
+                    name: "O1",
+                    amplitude: 0.10,
+                    phase_g: 300.0,
+                },
             ],
             0.0,
         );
@@ -393,7 +411,9 @@ mod tests {
         // serie en orden descendente: antes reventaba en frequency_grid
         let n = 60;
         let t_desc: Vec<f64> = (0..n).map(|i| 60_000.0 - i as f64 * 16.0).collect();
-        let x: Vec<f64> = (0..n).map(|i| 100.0 + (i as f64 * 0.7).sin() * 5.0).collect();
+        let x: Vec<f64> = (0..n)
+            .map(|i| 100.0 + (i as f64 * 0.7).sin() * 5.0)
+            .collect();
         let h: Vec<f64> = (0..n).map(|i| (i as f64 * 1.3).cos()).collect();
         // no debe hacer panic; con la serie reordenada internamente puede
         // devolver estimación o None, pero nunca abortar

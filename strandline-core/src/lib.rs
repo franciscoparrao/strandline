@@ -41,6 +41,4 @@ pub use slope::{estimate_beach_slope, SlopeEstimate, SlopeSettings};
 pub use stl::{decompose as stl_decompose, StlResult};
 pub use subpixel::{fit_profile, fit_profiles, refine_line_subpixel, ProfileFit, ProfileSettings};
 pub use tide::{correct_chainage, TideCorrection};
-pub use transects::{
-    compute_intersections, generate_transects, IntersectionSettings, Transect,
-};
+pub use transects::{compute_intersections, generate_transects, IntersectionSettings, Transect};

@@ -36,9 +36,9 @@ fn collection_assets(collection: &str) -> anyhow::Result<([&'static str; 5], &'s
     match collection {
         "landsat-c2-l2" => Ok((["blue", "green", "red", "nir08", "swir16"], "qa_pixel")),
         "sentinel-2-l2a" => Ok((["B02", "B03", "B04", "B08", "B11"], "SCL")),
-        other => anyhow::bail!(
-            "colección no soportada: '{other}' (usa landsat-c2-l2 | sentinel-2-l2a)"
-        ),
+        other => {
+            anyhow::bail!("colección no soportada: '{other}' (usa landsat-c2-l2 | sentinel-2-l2a)")
+        }
     }
 }
 
@@ -184,7 +184,11 @@ pub fn run(
         items.retain(|it| sensor_allowed(it.properties.platform.as_deref(), sensors));
         if skip_l7_slc {
             items.retain(|it| {
-                let is_l7 = it.properties.platform.as_deref().is_some_and(|p| p.contains("landsat-7"));
+                let is_l7 = it
+                    .properties
+                    .platform
+                    .as_deref()
+                    .is_some_and(|p| p.contains("landsat-7"));
                 let post_failure = it
                     .properties
                     .datetime
@@ -280,16 +284,14 @@ pub fn run(
             let href = client
                 .sign_asset_href(&asset.href, collection)
                 .context("firmando asset")?;
-            let r: anyhow::Result<Raster<f32>> = CogReaderBlocking::open(
-                &href,
-                CogReaderOptions::default(),
-            )
-            .with_context(|| format!("abriendo COG {key}"))
-            .and_then(|mut reader| {
-                reader
-                    .read_bbox(&bbox, None)
-                    .with_context(|| format!("leyendo ventana de {key}"))
-            });
+            let r: anyhow::Result<Raster<f32>> =
+                CogReaderBlocking::open(&href, CogReaderOptions::default())
+                    .with_context(|| format!("abriendo COG {key}"))
+                    .and_then(|mut reader| {
+                        reader
+                            .read_bbox(&bbox, None)
+                            .with_context(|| format!("leyendo ventana de {key}"))
+                    });
             let mut r = match r {
                 Ok(r) => r,
                 Err(e) => {
@@ -317,17 +319,17 @@ pub fn run(
         // recortar al shape mínimo común (grillas idénticas → no-op)
         let min_rows = bands.iter().map(|b| b.shape().0).min().unwrap();
         let min_cols = bands.iter().map(|b| b.shape().1).min().unwrap();
-        if bands
-            .iter()
-            .any(|b| b.shape() != (min_rows, min_cols))
-        {
+        if bands.iter().any(|b| b.shape() != (min_rows, min_cols)) {
             eprintln!(
                 "  {}: bandas con shapes distintos, se recorta a {min_rows}×{min_cols}",
                 item.id
             );
             for b in &mut bands {
                 if b.shape() != (min_rows, min_cols) {
-                    let view = b.data().slice(ndarray::s![..min_rows, ..min_cols]).to_owned();
+                    let view = b
+                        .data()
+                        .slice(ndarray::s![..min_rows, ..min_cols])
+                        .to_owned();
                     let mut nb: Raster<f32> = b.with_same_meta(min_rows, min_cols);
                     *nb.data_mut() = view;
                     *b = nb;
@@ -437,9 +439,7 @@ pub fn run(
             failed_scenes
         );
     }
-    eprintln!(
-        "{written} escenas nuevas, {skipped_existing} ya existían, {failed_scenes} fallidas"
-    );
+    eprintln!("{written} escenas nuevas, {skipped_existing} ya existían, {failed_scenes} fallidas");
     Ok(written)
 }
 
@@ -457,10 +457,19 @@ mod tests {
         assert!(sensor_allowed(Some("landsat-8"), "oli"));
         assert!(sensor_allowed(Some("landsat-9"), "oli"));
         assert!(!sensor_allowed(Some("landsat-5"), "oli"));
-        for p in ["landsat-4", "landsat-5", "landsat-7", "landsat-8", "landsat-9"] {
+        for p in [
+            "landsat-4",
+            "landsat-5",
+            "landsat-7",
+            "landsat-8",
+            "landsat-9",
+        ] {
             assert!(sensor_allowed(Some(p), "all"));
         }
-        assert!(!sensor_allowed(None, "all"), "sin platform nunca pasa, ni con 'all'");
+        assert!(
+            !sensor_allowed(None, "all"),
+            "sin platform nunca pasa, ni con 'all'"
+        );
     }
 
     #[test]
@@ -472,9 +481,15 @@ mod tests {
     #[test]
     fn s2_offset_por_baseline() {
         // el baseline manda, no la fecha (escenas viejas reprocesadas)
-        assert_eq!(s2_dn_offset(Some("04.00"), Some("2019-06-01T14:00:00Z")), -1000.0);
+        assert_eq!(
+            s2_dn_offset(Some("04.00"), Some("2019-06-01T14:00:00Z")),
+            -1000.0
+        );
         assert_eq!(s2_dn_offset(Some("05.11"), None), -1000.0);
-        assert_eq!(s2_dn_offset(Some("03.01"), Some("2023-06-01T14:00:00Z")), 0.0);
+        assert_eq!(
+            s2_dn_offset(Some("03.01"), Some("2023-06-01T14:00:00Z")),
+            0.0
+        );
         assert_eq!(s2_dn_offset(Some("02.14"), None), 0.0);
     }
 
@@ -483,7 +498,10 @@ mod tests {
         // sin baseline (o ilegible) decide la fecha de adquisición
         assert_eq!(s2_dn_offset(None, Some("2022-01-24T23:59:59Z")), 0.0);
         assert_eq!(s2_dn_offset(None, Some("2022-01-25T00:00:01Z")), -1000.0);
-        assert_eq!(s2_dn_offset(Some("N/A"), Some("2023-01-01T00:00:00Z")), -1000.0);
+        assert_eq!(
+            s2_dn_offset(Some("N/A"), Some("2023-01-01T00:00:00Z")),
+            -1000.0
+        );
         assert_eq!(s2_dn_offset(None, None), 0.0);
     }
 

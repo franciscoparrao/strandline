@@ -123,7 +123,10 @@ fn assemble(segments: Vec<(Point, Point)>) -> Vec<Contour> {
     let mut used = vec![false; n];
     let mut contours = Vec::new();
 
-    let take = |map: &mut HashMap<(i64, i64), Vec<usize>>, k: (i64, i64), used: &[bool]| -> Option<usize> {
+    let take = |map: &mut HashMap<(i64, i64), Vec<usize>>,
+                k: (i64, i64),
+                used: &[bool]|
+     -> Option<usize> {
         let bucket = map.get_mut(&k)?;
         while let Some(i) = bucket.pop() {
             if !used[i] {
@@ -198,7 +201,9 @@ mod tests {
         let d0 = (c[0].0 - c.last().unwrap().0).abs() + (c[0].1 - c.last().unwrap().1).abs();
         assert!(d0 < 1e-12);
         // cruces a mitad de camino entre el peak y sus vecinos
-        assert!(c.iter().any(|p| (p.0 - 1.5).abs() < 1e-12 && (p.1 - 2.0).abs() < 1e-12));
+        assert!(c
+            .iter()
+            .any(|p| (p.0 - 1.5).abs() < 1e-12 && (p.1 - 2.0).abs() < 1e-12));
     }
 
     #[test]

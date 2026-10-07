@@ -223,7 +223,10 @@ fn select_level(
     params: &ExtractParams,
 ) -> Result<LevelSelection> {
     if let Some(l) = params.level {
-        return Ok(LevelSelection { raw: l, textbook: l });
+        return Ok(LevelSelection {
+            raw: l,
+            textbook: l,
+        });
     }
     match classification {
         Some(cls) if params.coastsat_compat => {
@@ -236,13 +239,19 @@ fn select_level(
             let water_vals = values_at(&ndwi_cs, &cls.water);
             let sand_vals = values_at(&ndwi_cs, &cls.sand);
             let t = balanced_otsu(&water_vals, &sand_vals)?;
-            Ok(LevelSelection { raw: t, textbook: -t })
+            Ok(LevelSelection {
+                raw: t,
+                textbook: -t,
+            })
         }
         Some(cls) => {
             let water_vals = values_at(ndwi, &cls.water);
             let sand_vals = values_at(ndwi, &cls.sand);
             let t = balanced_otsu(&water_vals, &sand_vals)?;
-            Ok(LevelSelection { raw: t, textbook: t })
+            Ok(LevelSelection {
+                raw: t,
+                textbook: t,
+            })
         }
         None => {
             let global = otsu_threshold(ndwi.data().iter().cloned())?;
@@ -251,7 +260,10 @@ fn select_level(
             } else {
                 refine_threshold(ndwi, global, params.refine_radius_px).unwrap_or(global)
             };
-            Ok(LevelSelection { raw: t, textbook: t })
+            Ok(LevelSelection {
+                raw: t,
+                textbook: t,
+            })
         }
     }
 }
@@ -337,7 +349,14 @@ pub fn prepare_scene(
     } else {
         None
     };
-    let level = select_level(&bands, green, &ndwi, cloud_mask.as_ref(), &classification, params)?;
+    let level = select_level(
+        &bands,
+        green,
+        &ndwi,
+        cloud_mask.as_ref(),
+        &classification,
+        params,
+    )?;
 
     let classification_summary = classification.as_ref().map(|cls| {
         let (sand_px, whitewater_px, water_px) = cls.counts();
@@ -436,7 +455,14 @@ pub fn extract_shoreline(
     let t_classify = t_classify_start.elapsed().as_secs_f64() * 1000.0;
 
     let t2 = Instant::now();
-    let level = select_level(&bands, green, &ndwi, cloud_mask.as_ref(), &classification, params)?;
+    let level = select_level(
+        &bands,
+        green,
+        &ndwi,
+        cloud_mask.as_ref(),
+        &classification,
+        params,
+    )?;
     // se contornea siempre el MNDWI textbook al nivel textbook; en modo
     // compat es matemáticamente idéntico a contornear el MWI con signo
     // CoastSat al umbral del quirk (la negación conmuta con la

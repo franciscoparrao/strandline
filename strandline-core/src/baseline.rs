@@ -113,9 +113,14 @@ mod tests {
         let a: Vec<Vec<(f64, f64)>> = vec![(0..=50).map(|i| (i as f64 * 10.0, 0.0)).collect()];
         // B: el mismo fragmento representante (500 m) más 3 piezas
         // menores (ríos, espigones) — mismo "longest", más fragmentos.
-        let mut b: Vec<Vec<(f64, f64)>> = vec![(0..=50).map(|i| (i as f64 * 10.0, 100.0)).collect()];
+        let mut b: Vec<Vec<(f64, f64)>> =
+            vec![(0..=50).map(|i| (i as f64 * 10.0, 100.0)).collect()];
         for k in 0..3 {
-            b.push((0..=20).map(|i| (k as f64 * 1000.0 + i as f64 * 10.0, 200.0)).collect());
+            b.push(
+                (0..=20)
+                    .map(|i| (k as f64 * 1000.0 + i as f64 * 10.0, 200.0))
+                    .collect(),
+            );
         }
         let cand_a = evaluate_candidate("A", &a, 0.0).unwrap();
         let cand_b = evaluate_candidate("B", &b, 0.0).unwrap();
@@ -123,7 +128,10 @@ mod tests {
         assert_eq!(cand_b.n_fragments, 4);
         assert!((cand_a.arc_length_m - cand_b.arc_length_m).abs() < 1e-6);
         let chosen = select_baseline(vec![cand_a, cand_b]).unwrap();
-        assert_eq!(chosen.label, "A", "a igual longitud del representante, menos fragmentos debe ganar");
+        assert_eq!(
+            chosen.label, "A",
+            "a igual longitud del representante, menos fragmentos debe ganar"
+        );
     }
 
     #[test]
@@ -134,14 +142,22 @@ mod tests {
         // léxico primario) sí lo hacía, y era la escena inútil como
         // baseline para 4-6 km de costa real.
         let a: Vec<Vec<(f64, f64)>> = vec![(0..=10).map(|i| (i as f64 * 10.0, 0.0)).collect()]; // 100 m
-        let mut b: Vec<Vec<(f64, f64)>> = vec![(0..=50).map(|i| (i as f64 * 10.0, 100.0)).collect()]; // 500 m
+        let mut b: Vec<Vec<(f64, f64)>> =
+            vec![(0..=50).map(|i| (i as f64 * 10.0, 100.0)).collect()]; // 500 m
         for k in 0..2 {
-            b.push((0..=5).map(|i| (k as f64 * 1000.0 + i as f64 * 10.0, 200.0)).collect());
+            b.push(
+                (0..=5)
+                    .map(|i| (k as f64 * 1000.0 + i as f64 * 10.0, 200.0))
+                    .collect(),
+            );
         }
         let cand_a = evaluate_candidate("A", &a, 0.0).unwrap();
         let cand_b = evaluate_candidate("B", &b, 0.0).unwrap();
         let chosen = select_baseline(vec![cand_a, cand_b]).unwrap();
-        assert_eq!(chosen.label, "B", "una escena con más cobertura real debe ganar pese a fragmentación modesta");
+        assert_eq!(
+            chosen.label, "B",
+            "una escena con más cobertura real debe ganar pese a fragmentación modesta"
+        );
     }
 
     #[test]
@@ -149,19 +165,31 @@ mod tests {
         // A: 7 fragmentos, representante de 9785 (escala Viña real).
         let mut a: Vec<Vec<(f64, f64)>> = vec![(0..=978).map(|i| (i as f64 * 10.0, 0.0)).collect()]; // ~9780 m
         for k in 0..6 {
-            a.push((0..=20).map(|i| (k as f64 * 2000.0 + i as f64 * 10.0, 500.0)).collect());
+            a.push(
+                (0..=20)
+                    .map(|i| (k as f64 * 2000.0 + i as f64 * 10.0, 500.0))
+                    .collect(),
+            );
         }
         // B: 168 fragmentos (fragmentación patológica: escena mayormente
         // nube), representante más largo (16530 m).
-        let mut b: Vec<Vec<(f64, f64)>> = vec![(0..=1653).map(|i| (i as f64 * 10.0, 1000.0)).collect()];
+        let mut b: Vec<Vec<(f64, f64)>> =
+            vec![(0..=1653).map(|i| (i as f64 * 10.0, 1000.0)).collect()];
         for k in 0..167 {
-            b.push((0..=20).map(|i| (k as f64 * 200.0 + i as f64 * 10.0, 1500.0)).collect());
+            b.push(
+                (0..=20)
+                    .map(|i| (k as f64 * 200.0 + i as f64 * 10.0, 1500.0))
+                    .collect(),
+            );
         }
         let cand_a = evaluate_candidate("A", &a, 0.0).unwrap();
         let cand_b = evaluate_candidate("B", &b, 0.0).unwrap();
         assert!(cand_b.arc_length_m > cand_a.arc_length_m);
         let chosen = select_baseline(vec![cand_a, cand_b]).unwrap();
-        assert_eq!(chosen.label, "A", "fragmentación de cientos de trozos debe perder pese a mayor longitud bruta");
+        assert_eq!(
+            chosen.label, "A",
+            "fragmentación de cientos de trozos debe perder pese a mayor longitud bruta"
+        );
     }
 
     #[test]
@@ -186,10 +214,9 @@ mod tests {
         // re-filtra (paridad CoastSat) — sin el segundo filtro, una
         // escena "toda nube" con 3 trocitos gana a una limpia con 1 línea
         // larga por tener "menos fragmentos".
-        let clean: Vec<Vec<(f64, f64)>> =
-            vec![(0..=90).map(|i| (i as f64 * 10.0, 0.0)).collect()]; // 900 m, 1 fragmento
+        let clean: Vec<Vec<(f64, f64)>> = vec![(0..=90).map(|i| (i as f64 * 10.0, 0.0)).collect()]; // 900 m, 1 fragmento
         let cloudy: Vec<Vec<(f64, f64)>> = vec![
-            vec![(0.0, 100.0), (15.0, 100.0)],   // 15 m: ruido
+            vec![(0.0, 100.0), (15.0, 100.0)],    // 15 m: ruido
             vec![(100.0, 100.0), (112.0, 100.0)], // 12 m: ruido
             vec![(200.0, 100.0), (208.0, 100.0)], // 8 m: ruido
         ];

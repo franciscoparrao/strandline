@@ -655,7 +655,13 @@ mod tests {
     fn no_crossing_returns_none() {
         // nivel fuera del rango del perfil → sin cruce
         let raster = synthetic_edge(300.0, 15.0, 0.0, 1);
-        let fit = fit_profile(&raster, &transect_at_row(20), 5.0, None, &ProfileSettings::default());
+        let fit = fit_profile(
+            &raster,
+            &transect_at_row(20),
+            5.0,
+            None,
+            &ProfileSettings::default(),
+        );
         assert!(fit.is_none());
     }
 
@@ -668,8 +674,14 @@ mod tests {
         // posición x₀ no se sesga: el kernel es simétrico) → se acepta
         // [28, 38].
         let raster = synthetic_edge(300.0, 15.0, 0.0, 3);
-        let fit = fit_profile(&raster, &transect_at_row(20), 0.1, None, &ProfileSettings::default())
-            .unwrap();
+        let fit = fit_profile(
+            &raster,
+            &transect_at_row(20),
+            0.1,
+            None,
+            &ProfileSettings::default(),
+        )
+        .unwrap();
         assert!(
             fit.dx_dthreshold > 28.0 && fit.dx_dthreshold < 38.0,
             "dx/dt = {}",
@@ -719,7 +731,13 @@ mod tests {
     #[test]
     fn naive_search_engancha_la_meseta_espuria() {
         let raster = synthetic_false_plateau_then_edge(350.0);
-        let fit = fit_profile(&raster, &transect_at_row(20), 0.3, None, &ProfileSettings::default());
+        let fit = fit_profile(
+            &raster,
+            &transect_at_row(20),
+            0.3,
+            None,
+            &ProfileSettings::default(),
+        );
         // o no converge (0.3 nunca vuelve a cruzarse tras la meseta), o
         // converge cerca de la meseta espuria (~90 m) — en ningún caso
         // cerca del borde verdadero (350 m).
@@ -752,7 +770,10 @@ mod tests {
             "chainage = {} vs 350.0 esperado (fallback exacto a la semilla)",
             fit.chainage_m
         );
-        assert!(fit.sigma_m.is_nan(), "fallback no debería reportar σ del ajuste");
+        assert!(
+            fit.sigma_m.is_nan(),
+            "fallback no debería reportar σ del ajuste"
+        );
     }
 
     #[test]
@@ -770,7 +791,10 @@ mod tests {
             &ProfileSettings::default(),
         )
         .expect("debería converger con una semilla cercana");
-        assert!(!fit.sigma_m.is_nan(), "esperaba un ajuste refinado, no el fallback");
+        assert!(
+            !fit.sigma_m.is_nan(),
+            "esperaba un ajuste refinado, no el fallback"
+        );
         assert!(
             (fit.chainage_m - 350.0).abs() < 1.0,
             "chainage = {} vs 350.0 esperado",
@@ -803,7 +827,10 @@ mod tests {
 
         // control: un borde real con init razonable SÍ converge
         let xs: Vec<f64> = (0..40).map(|i| i as f64).collect();
-        let ys: Vec<f64> = xs.iter().map(|&x| 0.1 + 0.5 * ((x - 20.0) / 4.0).tanh()).collect();
+        let ys: Vec<f64> = xs
+            .iter()
+            .map(|&x| 0.1 + 0.5 * ((x - 20.0) / 4.0).tanh())
+            .collect();
         let (p, var, rmse) = fit_edge(&xs, &ys, [0.0, 0.4, 17.0, 5.0], 60)
             .expect("un borde sigmoide limpio debe converger");
         assert!((p[2] - 20.0).abs() < 0.5, "x0 = {}", p[2]);
@@ -858,7 +885,10 @@ mod tests {
             );
         }
         // al menos la mayoría debería quedar en precisión subpixel real
-        let n_close = refined.iter().filter(|&&(x, _)| (x - x_true).abs() < 1.0).count();
+        let n_close = refined
+            .iter()
+            .filter(|&&(x, _)| (x - x_true).abs() < 1.0)
+            .count();
         assert!(
             n_close * 2 >= refined.len(),
             "esperaba que al menos la mitad de los puntos refinados quedaran <1 m del borde real"

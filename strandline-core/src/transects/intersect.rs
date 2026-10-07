@@ -125,7 +125,11 @@ fn transect_cross_stats(
             let d_origin = (dp.0 * dp.0 + dp.1 * dp.1).sqrt();
             if d_line <= s.along_dist && d_origin <= s.max_origin_dist {
                 let x_rot = cos_phi * dp.0 + sin_phi * dp.1;
-                chain.push(if x_rot < s.min_chainage { f64::NAN } else { x_rot });
+                chain.push(if x_rot < s.min_chainage {
+                    f64::NAN
+                } else {
+                    x_rot
+                });
             }
         }
         let (std, median, max, min, n) = nan_stats(&chain);

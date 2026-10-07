@@ -154,7 +154,10 @@ fn resample_monthly(times_years: &[f64], chainage: &[f64]) -> Option<MonthlyGrid
     if bins.len() < 2 {
         return None;
     }
-    let means: BTreeMap<i64, f64> = bins.into_iter().map(|(m, (sum, n))| (m, sum / n as f64)).collect();
+    let means: BTreeMap<i64, f64> = bins
+        .into_iter()
+        .map(|(m, (sum, n))| (m, sum / n as f64))
+        .collect();
     let first = *means.keys().next().unwrap();
     let last = *means.keys().next_back().unwrap();
 
@@ -390,7 +393,10 @@ mod tests {
         }
         // la etiqueta de salida cae dentro del mes que representa
         for m in [abs_month(dy(2020, 1, 15)), abs_month(dy(1999, 12, 15))] {
-            assert_eq!(year_month_of(abs_month(month_to_decimal_year(m))), year_month_of(m));
+            assert_eq!(
+                year_month_of(abs_month(month_to_decimal_year(m))),
+                year_month_of(m)
+            );
         }
     }
 

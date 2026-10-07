@@ -159,10 +159,12 @@ mod tests {
             .into_iter()
             .chain(std::iter::repeat(0.005).take(10))
             .collect();
-        let whitewater: Vec<f32> = [0.30, 0.32, 0.31, 0.28, 0.10, -0.07, -0.52, -0.05, -0.47, -0.02]
-            .into_iter()
-            .chain(std::iter::repeat(0.05).take(10))
-            .collect();
+        let whitewater: Vec<f32> = [
+            0.30, 0.32, 0.31, 0.28, 0.10, -0.07, -0.52, -0.05, -0.47, -0.02,
+        ]
+        .into_iter()
+        .chain(std::iter::repeat(0.05).take(10))
+        .collect();
         let veg: Vec<f32> = [0.04, 0.06, 0.05, 0.35, 0.15, 0.71, 0.43, 0.75, -0.4, -0.11]
             .into_iter()
             .chain(std::iter::repeat(0.02).take(10))

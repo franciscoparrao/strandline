@@ -57,12 +57,20 @@ pub fn otsu_threshold_weighted(pairs: impl Iterator<Item = (f32, f64)>) -> Resul
     acc = 0.0;
     for i in 0..NBINS {
         acc += counts[i] * centers[i];
-        mean1[i] = if weight1[i] > 0.0 { acc / weight1[i] } else { 0.0 };
+        mean1[i] = if weight1[i] > 0.0 {
+            acc / weight1[i]
+        } else {
+            0.0
+        };
     }
     acc = 0.0;
     for i in (0..NBINS).rev() {
         acc += counts[i] * centers[i];
-        mean2[i] = if weight2[i] > 0.0 { acc / weight2[i] } else { 0.0 };
+        mean2[i] = if weight2[i] > 0.0 {
+            acc / weight2[i]
+        } else {
+            0.0
+        };
     }
 
     // variance12[i] = weight1[i] * weight2[i+1] * (mean1[i] - mean2[i+1])^2
