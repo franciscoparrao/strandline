@@ -32,3 +32,8 @@ __pycache__/
 # Datos del experimento de reentrenamiento SR, que no se adoptó (adenda
 # 2026-07-16). Intermedios regenerables con pseudo_label_sr.py.
 /spike/classifier_sr/training_data_auto/
+
+# material de terceros / interno (no publicar)
+spike/algarrobo/
+spike/slope_field/*_profiles_2023.csv
+CLAUDE.local.md

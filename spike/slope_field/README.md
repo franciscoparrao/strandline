@@ -11,7 +11,9 @@ cuantitativo que el paper hoy no tiene.**
 ## Los datos de terreno
 
 Perfiles de playa medidos por tesistas de geología, recuperados de
-`~/proyectos/playas-machine-learning/tesis/`:
+`~/proyectos/playas-machine-learning/tesis/`. **Los CSV de perfiles no se
+distribuyen en este repositorio** (datos de terceros); los scripts los esperan
+en esta carpeta:
 
 | archivo | sitio | perfiles | campañas |
 |---|---|---|---|
