@@ -140,10 +140,14 @@ enum Command {
         #[arg(long, default_value_t = 10)]
         refine_radius: usize,
         /// Usa el clasificador de píxeles (MLP portado de CoastSat) + Otsu
-        /// balanceado sand/water en vez de Otsu global.
+        /// balanceado sand/water en vez de Otsu global. Entrenado con
+        /// reflectancia TOA: no usar con escenas SR de `fetch`.
         #[arg(long)]
         classify: bool,
-        /// Replica el quirk de umbral NDWI/MNDWI de CoastSat (implica --classify).
+        /// Replica el quirk de umbral NDWI/MNDWI de CoastSat (implica
+        /// --classify). Solo para escenas TOA (GEE/CoastSat): sobre SR el
+        /// umbral depende del sensor y desplaza la costa de L8 ~25 m mar
+        /// adentro respecto de L7.
         #[arg(long)]
         coastsat_compat: bool,
         /// Área mínima (m²) para conservar un blob sand/water clasificado.
@@ -521,6 +525,41 @@ enum Command {
         #[arg(short, long)]
         output: PathBuf,
     },
+}
+
+/// `true` si el nombre del archivo lleva el identificador de un producto de
+/// reflectancia superficial: Landsat Collection 2 Level-2 (`_L2SP_`) o
+/// Sentinel-2 L2A (`_MSIL2A_`). `fetch` conserva el id del ítem STAC en el
+/// nombre, así que las escenas que baja quedan reconocibles.
+fn looks_like_surface_reflectance(path: &std::path::Path) -> bool {
+    path.file_name()
+        .map(|n| n.to_string_lossy())
+        .is_some_and(|n| n.contains("_L2SP_") || n.contains("_MSIL2A_"))
+}
+
+/// Avisa por stderr cuando el clasificador (o el modo compat) se aplica a
+/// una escena de reflectancia superficial. El MLP de CoastSat se entrenó con
+/// reflectancia TOA (hallazgo E4), y en modo compat el umbral del contorno
+/// MNDWI sale del Otsu del NDWI con NIR; sobre SR esa relación cambia con el
+/// sensor. En Algarrobo (127 pares L7/L8 a ≤ 8 días, 2013–2021) el modo
+/// compat ubicó la costa de L8 26 m más mar adentro que la de L7, mientras
+/// que el Otsu sin clasificador dio −4.6 m.
+fn warn_classifier_on_sr(path: &std::path::Path, use_classifier: bool, coastsat_compat: bool) {
+    if !use_classifier || !looks_like_surface_reflectance(path) {
+        return;
+    }
+    let mode = if coastsat_compat {
+        "--coastsat-compat"
+    } else {
+        "--classify"
+    };
+    eprintln!(
+        "aviso: {mode} sobre una escena de reflectancia superficial ({}). El \
+         clasificador está entrenado con reflectancia TOA y su umbral depende \
+         del sensor sobre SR (L8 queda ~25 m mar adentro de L7). Para SR usa \
+         el modo por defecto (Otsu refinado) o --level.",
+        path.display()
+    );
 }
 
 /// Parsea el tipo de máscara desde el flag CLI.
@@ -927,6 +966,7 @@ fn main() -> anyhow::Result<()> {
                 subpixel_refine,
                 subpixel_spacing_m: 15.0,
             };
+            warn_classifier_on_sr(&ms, params.use_classifier, coastsat_compat);
             let mut shoreline = extract_shoreline(&ms, mask.as_deref(), &params)
                 .with_context(|| format!("extracting shoreline from {}", ms.display()))?;
             if let Some(epsg) = output_epsg {
@@ -1010,6 +1050,7 @@ fn main() -> anyhow::Result<()> {
                 mask_kind: parse_mask_kind(&mask_kind)?,
                 ..Default::default()
             };
+            warn_classifier_on_sr(&ms, params.use_classifier, coastsat_compat);
             let scene = prepare_scene(&ms, mask.as_deref(), &params)
                 .with_context(|| format!("preparando escena {}", ms.display()))?;
             let (ts, ts_names) = read_transects_csv(&transects, cli.strict)?;
@@ -1234,6 +1275,10 @@ fn main() -> anyhow::Result<()> {
                 "sin escenas *_ms.tif en {}",
                 dir.display()
             );
+            // un solo aviso por directorio, no uno por escena
+            if let Some(sr) = ms_paths.iter().find(|p| looks_like_surface_reflectance(p)) {
+                warn_classifier_on_sr(sr, params.use_classifier, coastsat_compat);
+            }
 
             let mut candidates = Vec::new();
             let mut paths_by_label: std::collections::HashMap<String, (PathBuf, Option<PathBuf>)> =

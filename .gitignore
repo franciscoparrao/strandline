@@ -37,3 +37,4 @@ __pycache__/
 spike/algarrobo/
 spike/slope_field/*_profiles_2023.csv
 CLAUDE.local.md
+strandline-core/tests/fixtures/sensor_pairs/
