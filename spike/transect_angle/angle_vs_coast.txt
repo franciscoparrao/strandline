@@ -1,0 +1,6 @@
+Viña del Mar  sobre costa n=  3 θ= 44.8° | fuera n= 14 θ= 45.6° | % sobre costa=18%
+Coquimbo      sobre costa n= 78 θ= 30.9° | fuera n=256 θ= 39.8° | % sobre costa=23%
+Constitución  sobre costa n=  8 θ= 46.2° | fuera n= 15 θ= 36.5° | % sobre costa=35%
+Valdivia      sobre costa n= 41 θ= 33.0° | fuera n=123 θ= 49.1° | % sobre costa=25%
+TOTAL sobre costa n=130 θ=35.4° | fuera n=408 θ=40.8°
+inflación implicada sobre costa: 23%

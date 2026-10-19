@@ -1,0 +1,57 @@
+θ = ángulo entre el transecto fijo y la normal local de la costa.
+NULA = misma medición sobre la línea de referencia re-muestreada a 15 m y cuantizada a 15 m (θ verdadero = 0).
+SEÑAL = shorelines instantáneas de CoastSat.
+
+--- ventana ±60 m ----------------------------------------------------
+sitio           nula med  nula p90 |  señal med  señal p90 |  exceso   infl%
+VINA_DEL_MAR        3.3°     17.0° |       4.8°      25.9° |    1.5°    0.3%
+COQUIMBO            5.3°     23.4° |       6.2°      30.9° |    0.9°    0.6%
+CONSTITUCION        3.1°     20.9° |      19.9°      73.6° |   16.8°    6.3%
+VALDIVIA            9.0°     28.8° |       8.7°      43.8° |   -0.3°    1.2%
+CHILOE              3.7°     22.4° |       6.4°      40.1° |    2.7°    0.6%
+GLOBAL              5.2°     24.1° |       7.3°      42.2° |    2.1°    0.8%   n_nula=927 n_señal=227054  (Mann-Whitney p=1.89e-16)
+
+--- ventana ±100 m ----------------------------------------------------
+sitio           nula med  nula p90 |  señal med  señal p90 |  exceso   infl%
+VINA_DEL_MAR        1.3°      6.6° |       3.6°      25.4° |    2.3°    0.2%
+COQUIMBO            2.2°     13.0° |       5.3°      31.5° |    3.1°    0.4%
+CONSTITUCION        1.4°     10.7° |      20.1°      73.7° |   18.8°    6.5%
+VALDIVIA            4.1°     11.7° |       6.4°      45.3° |    2.4°    0.6%
+CHILOE              1.6°     10.8° |       5.2°      39.4° |    3.6°    0.4%
+GLOBAL              2.1°     11.8° |       5.9°      43.1° |    3.8°    0.5%   n_nula=927 n_señal=227058  (Mann-Whitney p=3.81e-88)
+
+--- ventana ±150 m ----------------------------------------------------
+sitio           nula med  nula p90 |  señal med  señal p90 |  exceso   infl%
+VINA_DEL_MAR        1.5°      8.6° |       3.4°      26.7° |    1.9°    0.2%
+COQUIMBO            2.6°     12.6° |       6.0°      33.2° |    3.4°    0.6%
+CONSTITUCION        1.5°      7.7° |      19.9°      72.9° |   18.4°    6.4%
+VALDIVIA            4.6°     13.2° |       8.3°      46.2° |    3.6°    1.1%
+CHILOE              1.7°     12.0° |       5.0°      41.3° |    3.2°    0.4%
+GLOBAL              2.6°     12.1° |       6.6°      43.9° |    4.0°    0.7%   n_nula=927 n_señal=227058  (Mann-Whitney p=1.27e-90)
+
+--- ventana ±200 m ----------------------------------------------------
+sitio           nula med  nula p90 |  señal med  señal p90 |  exceso   infl%
+VINA_DEL_MAR        1.8°     15.0° |       3.5°      30.8° |    1.6°    0.2%
+COQUIMBO            4.3°     20.6° |       7.3°      35.5° |    3.0°    0.8%
+CONSTITUCION        2.3°     13.9° |      20.0°      72.4° |   17.8°    6.4%
+VALDIVIA            6.6°     20.6° |      10.8°      48.2° |    4.2°    1.8%
+CHILOE              2.4°     19.1° |       5.4°      43.6° |    3.0°    0.4%
+GLOBAL              3.8°     18.9° |       8.0°      44.8° |    4.1°    1.0%   n_nula=927 n_señal=227058  (Mann-Whitney p=4.13e-50)
+
+
+==============================================================================
+DESCOMPOSICIÓN: ¿la desalineación es PERSISTENTE por transecto o fluctúa
+entre fechas? Solo la persistente sesga la TASA (una inflación que cambia
+al azar entre fechas agrega varianza, pero su offset no altera la pendiente).
+==============================================================================
+sitio           n_tr  θ persist   θ p90 |  fluct (MAD) |  infl tasa
+VINA_DEL_MAR      83       3.7°   14.5° |         1.6° |       0.2%
+COQUIMBO         298       4.6°   21.4° |         2.0° |       0.3%
+CONSTITUCION     109      22.1°   51.0° |        13.7° |       8.0%
+VALDIVIA         192       5.7°   23.0° |         2.6° |       0.5%
+CHILOE           175       5.0°   26.1° |         2.2° |       0.4%
+GLOBAL           857       5.7°   27.9° |         2.5° |       0.5%
+
+Inflación de tasa implicada por la componente PERSISTENTE 1/cos(θ_persist):
+  mediana 0.5%   p75 2.9%   p90 13.1%
+Fracción de transectos con θ_persist > 20°: 16.6%  > 30°: 8.5%

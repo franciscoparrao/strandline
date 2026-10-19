@@ -28,14 +28,9 @@ import importlib.util
 spec = importlib.util.spec_from_file_location(
     "mta", __file__.replace("verify_rate_impact.py", "measure_transect_angle.py"))
 
-BASE = '/home/franciscoparrao/proyectos/zenodo-gaps/propuesta-4-erosion-costera/output'
-KING = '/mnt/kingston'
-SITES = [
-    ('VINA_DEL_MAR', 'VINA_DEL_MAR_tidal_corrected.pkl'),
-    ('COQUIMBO', 'COQUIMBO_analysis.pkl'),
-    ('CONSTITUCION', 'CONSTITUCION_analysis.pkl'),
-    ('VALDIVIA', 'VALDIVIA_analysis.pkl'),
-]
+import datasets  # fuente seleccionable con SDS_DATASET=original|ocean
+
+SITES = [(s, None) for s in datasets.SITES]
 HALF_WIN = 100.0
 MIN_PTS = 3
 MIN_DATES = 10
@@ -129,8 +124,7 @@ print(f"{'sitio':14s} {'n':>4s} {'r lag1':>8s} {'r lag2':>8s} {'r lag5':>8s} "
 
 store = {}
 for site, f in SITES:
-    an = pickle.load(open(f'{BASE}/{f}', 'rb'))
-    out = pickle.load(open(f'{KING}/{site}/{site}_output.pkl', 'rb'))
+    an, out = datasets.load(site)
     lines = [np.asarray(s, dtype=float) for s in out['shorelines']
              if s is not None and len(s) > 10]
     if len(lines) > MAX_DATES:
@@ -193,7 +187,7 @@ for site, f in SITES:
     an, per_t = store.get(site, (None, {}))
     if an is None or not per_t:
         continue
-    rates = an.get('rates_corrected', an.get('rates_all'))
+    rates = an.get('rates_corrected', an.get('rates_all', an.get('rates')))  # 'rates' en el conjunto ocean
     if rates is None:
         continue
     col = 'LRR_m_yr'

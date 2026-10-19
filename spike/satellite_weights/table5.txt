@@ -1,0 +1,16 @@
+== original: desviación típica del residuo (m) por satélite
+sitio               L5      L7      L8      L9   más preciso   razón var L5/L8   fechas sin satname
+VINA_DEL_MAR     137.2   135.2   115.5   127.8           L8            1.41       0
+COQUIMBO          80.1    48.7    43.8    45.7           L8            3.34       0
+CONSTITUCION     177.8   177.6   150.7   146.7           L9            1.39     233
+VALDIVIA         126.0   170.8   147.1   152.6           L5            0.73       1
+CHILOE         (sin etiquetas de satélite)
+
+== ocean: desviación típica del residuo (m) por satélite
+sitio               L5      L7      L8      L9   más preciso   razón var L5/L8   fechas sin satname
+VINA_DEL_MAR      40.5    51.6    42.1    43.2           L5            0.93       0
+COQUIMBO          39.4    37.7    34.3    36.8           L8            1.32       0
+CONSTITUCION      48.3    40.8    39.1    46.4           L8            1.53       0
+VALDIVIA          28.1    42.6    31.3    33.5           L5            0.80       0
+CHILOE            39.3    39.7    36.8    37.2           L8            1.14       0
+

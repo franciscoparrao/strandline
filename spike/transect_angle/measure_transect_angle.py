@@ -32,14 +32,9 @@ en varias ventanas.
 import pickle
 import numpy as np
 
-BASE = '/home/franciscoparrao/proyectos/zenodo-gaps/propuesta-4-erosion-costera/output'
-KING = '/mnt/kingston'
-SITES = [
-    ('VINA_DEL_MAR', 'VINA_DEL_MAR_tidal_corrected.pkl'),
-    ('COQUIMBO', 'COQUIMBO_analysis.pkl'),
-    ('CONSTITUCION', 'CONSTITUCION_analysis.pkl'),
-    ('VALDIVIA', 'VALDIVIA_analysis.pkl'),
-]
+import datasets  # fuente seleccionable con SDS_DATASET=original|ocean
+
+SITES = [(s, None) for s in datasets.SITES]
 MIN_PTS = 3
 MAX_DATES = 300  # igualado al export de la Fig. 3 (una sola corrida para todo 5.5)
 WINDOWS = [60.0, 100.0, 150.0, 200.0]
@@ -167,8 +162,7 @@ print('SEÑAL = shorelines instantáneas de CoastSat.\n')
 
 data = {}
 for site, f in SITES:
-    an = pickle.load(open(f'{BASE}/{f}', 'rb'))
-    out = pickle.load(open(f'{KING}/{site}/{site}_output.pkl', 'rb'))
+    an, out = datasets.load(site)
     lines = [np.asarray(s, dtype=float) for s in out['shorelines']
              if s is not None and len(s) > 10]
     if len(lines) > MAX_DATES:

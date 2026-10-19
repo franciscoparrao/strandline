@@ -1,0 +1,32 @@
+COQUIMBO original {'otsu_intersect': (16.32, 859), 'profile_seeded': (13.64, 1081), 'subpixel_extract_intersect': (10.02, 1568)}
+COQUIMBO ocean {'otsu_intersect': (19.9, 1919), 'profile_seeded': (15.19, 3054), 'subpixel_extract_intersect': (12.89, 3887)}
+CONSTITUCION original {'otsu_intersect': (11.9, 822), 'profile_seeded': (12.87, 838), 'subpixel_extract_intersect': (11.35, 916)}
+CONSTITUCION ocean {'otsu_intersect': (11.75, 531), 'profile_seeded': (12.25, 981), 'subpixel_extract_intersect': (11.7, 1113)}
+VALDIVIA original {'otsu_intersect': (12.95, 495), 'profile_seeded': (14.5, 518), 'subpixel_extract_intersect': (10.79, 730)}
+VALDIVIA ocean {'otsu_intersect': (12.97, 1131), 'profile_seeded': (12.12, 1946), 'subpixel_extract_intersect': (11.08, 2558)}
+CHILOE original {'otsu_intersect': (13.85, 1353), 'profile_seeded': (16.43, 1558), 'subpixel_extract_intersect': (12.96, 1766)}
+CHILOE ocean {'otsu_intersect': (17.07, 1216), 'profile_seeded': (15.11, 2067), 'subpixel_extract_intersect': (13.72, 2343)}
+VINA_DEL_MAR original {'otsu_intersect': (25.45, 394), 'profile_seeded': (26.8, 410), 'subpixel_extract_intersect': (22.82, 423)}
+VINA_DEL_MAR ocean {'otsu_intersect': (13.08, 373), 'profile_seeded': (12.59, 726), 'subpixel_extract_intersect': (11.72, 1091)}
+ARICA original {'otsu_intersect': (11.43, 607), 'profile_seeded': (9.46, 851), 'subpixel_extract_intersect': (8.12, 1161)}
+ARICA ocean {'otsu_intersect': (11.43, 607), 'profile_seeded': (9.46, 851), 'subpixel_extract_intersect': (8.12, 1161)}
+
+== complex · original
+  otsu_intersect               mediana  13.80  media  52.27  p90   82.34  n 3529
+  profile_seeded               mediana  14.71  media  49.99  p90   77.46  n 3995
+  subpixel_extract_intersect   mediana  11.47  media  44.09  p90   62.99  n 4980
+
+== complex · ocean
+  otsu_intersect               mediana  16.00  media  95.84  p90  369.09  n 4797
+  profile_seeded               mediana  13.90  media  64.19  p90  181.61  n 8048
+  subpixel_extract_intersect   mediana  12.46  media  54.60  p90  134.07  n 9901
+
+== straight · original
+  otsu_intersect               mediana  17.40  media 100.69  p90  410.65  n 1001
+  profile_seeded               mediana  12.71  media  82.94  p90  312.03  n 1261
+  subpixel_extract_intersect   mediana   9.79  media  66.90  p90  211.06  n 1584
+
+== straight · ocean
+  otsu_intersect               mediana  12.28  media  98.11  p90  460.44  n 980
+  profile_seeded               mediana  11.14  media  66.01  p90  209.60  n 1577
+  subpixel_extract_intersect   mediana  10.21  media  49.16  p90   43.88  n 2252

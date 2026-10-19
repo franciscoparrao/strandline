@@ -10,15 +10,10 @@ se replica aquí para que el export no dispare la medición completa al importar
 import pickle
 import numpy as np
 
-BASE = '/home/franciscoparrao/proyectos/zenodo-gaps/propuesta-4-erosion-costera/output'
-KING = '/mnt/kingston'
-OUT = '/home/franciscoparrao/proyectos/strandline/spike/transect_angle'
-SITES = [
-    ('VINA_DEL_MAR', 'VINA_DEL_MAR_tidal_corrected.pkl', 'Viña del Mar'),
-    ('COQUIMBO', 'COQUIMBO_analysis.pkl', 'Coquimbo'),
-    ('CONSTITUCION', 'CONSTITUCION_analysis.pkl', 'Constitución'),
-    ('VALDIVIA', 'VALDIVIA_analysis.pkl', 'Valdivia'),
-]
+import datasets  # fuente seleccionable con SDS_DATASET=original|ocean
+
+OUT = datasets.OUT_DIR
+SITES = [(s, None, datasets.LABELS[s]) for s in datasets.SITES]
 HALF_WIN = 100.0
 MIN_PTS = 3
 MIN_DATES = 10
@@ -124,8 +119,7 @@ def tnum(name):
 
 rows_null, rows_pers = [], []
 for site, f, label in SITES:
-    an = pickle.load(open(f'{BASE}/{f}', 'rb'))
-    out = pickle.load(open(f'{KING}/{site}/{site}_output.pkl', 'rb'))
+    an, out = datasets.load(site)
     lines = [np.asarray(s, dtype=float) for s in out['shorelines']
              if s is not None and len(s) > 10]
     if len(lines) > MAX_DATES:

@@ -38,3 +38,8 @@ spike/algarrobo/
 spike/slope_field/*_profiles_2023.csv
 CLAUDE.local.md
 strandline-core/tests/fixtures/sensor_pairs/
+
+# Escenas y salidas regenerables del experimento de geometría v2 (§5.4)
+/spike/profile_sr/scenes_v2/
+/spike/profile_sr/work_v2/
+/spike/satellite_weights/work/
