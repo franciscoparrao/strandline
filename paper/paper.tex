@@ -154,7 +154,7 @@ contributes:
   where the transect reference has drifted inland
   (Sects.~\ref{subsec:geom}--\ref{subsec:angle});
   \item a six-site benchmark spanning $24^\circ$ of latitude along the coast of
-  Chile, comparing accuracy, speed and installation footprint against CoastSat
+  Chile, comparing accuracy and speed against CoastSat
   (Sects.~\ref{sec:data}--\ref{sec:results}).
 \end{enumerate}
 
@@ -516,6 +516,21 @@ the nominal one. At the 300~m cloud buffer this is immaterial; at 30~m it is
 proportionally larger, and bilinear sampling of the distance field would remove
 it.
 
+\emph{A reference behaviour replicated on request.} One behaviour of CoastSat is
+not a divergence but is worth stating because it is easy to misread. In
+\texttt{find\_wl\_contours2} (\texttt{SDS\_shoreline.py}, lines 478, 504 and 513 at
+commit \texttt{b9abb0c} of 29 May 2026) the two indices are stacked as
+(NIR-based index, MNDWI), and the Otsu threshold that is then used to contour the
+MNDWI is computed on the first column, that is, on the NIR-based index. strandline
+reproduces this only in an explicit compatibility mode (\texttt{extract
+-{}-coastsat-compat}), used for the engine-against-engine comparison of
+Sect.~\ref{sec:results}; its default thresholds the MNDWI on the MNDWI. The
+mode is meant for top-of-atmosphere imagery: on surface reflectance the relation
+between the two indices depends on the sensor, so a threshold taken from one
+and applied to the other can shift shorelines differently from one Landsat
+generation to the next, and the command line warns when the mode is combined
+with surface-reflectance scenes.
+
 \subsection{Accuracy against CoastSat}
 Positional accuracy is measured as the agreement between a strandline shoreline
 and the CoastSat shoreline for the \emph{same} scene, so that atmospheric,
@@ -531,14 +546,15 @@ inter-product ($30$~m SR against TOA on a $15$~m grid) and interpret the
 residual accordingly; this sets a floor on achievable agreement that is
 independent of the port.
 
-\subsection{Speed, memory and installation}\label{subsec:speedmethod}
+\subsection{Speed and installation}\label{subsec:speedmethod}
 Run time is reported for the two stages that dominate cost --- the per-transect
 intersection and the per-pixel classification --- in both the single-threaded
 configuration and the default \texttt{rayon}-parallel one, against the
-vectorised Python reference. As a proxy for deployment friction we also
-contrast the installation footprint: a single \texttt{cargo install} producing
-a self-contained binary versus a Conda environment resolving the CoastSat
-dependency chain (GDAL, scikit-learn, \texttt{pyfes}/\texttt{pyTMD}).
+vectorised Python reference. Installation is contrasted qualitatively rather
+than measured: a single \texttt{cargo install} producing a self-contained binary
+versus a Conda environment resolving the CoastSat dependency chain (GDAL,
+scikit-learn, \texttt{pyfes}/\texttt{pyTMD}). We do not report installation size,
+installation time or peak memory.
 
 Timings are wall-clock on an Intel Core i7-1270P (12 cores, 16 threads;
 4 performance and 8 efficiency cores) with 38~GB of RAM under Linux, with
@@ -570,7 +586,8 @@ alone exceeded its own median.
 On matched scenes of the same product the engine reproduces the CoastSat
 shoreline to sub-metre distances. Over six clear top-of-atmosphere scenes at
 Vi\~na del Mar the median point-to-line agreement is $0.30$--$0.35$~m with the
-classifier and CoastSat-compatible thresholding enabled, and improves to
+classifier and the CoastSat-compatible threshold of
+Sect.~\ref{subsec:divergences} enabled, and improves to
 $0.20$~m (mean $3.3$~m, 90th percentile $1.2$~m) once the cloud treatment of
 Sect.~\ref{subsec:threshold} is applied; ranges span the two directions of the
 symmetric point-to-line comparison. At these magnitudes --- a few hundredths of
@@ -701,15 +718,19 @@ Arica). Fitting a profile along the fixed transects falls in between: it
 improves on the raw contour at three of the four complex sites and at both
 straight ones, and makes it worse only at Constituci\'on ($12.2$ against
 $11.8$~m), the one site where the fixed transects are strongly misaligned
-(Sect.~\ref{subsec:angle}). A finer estimator helps when it is sampled across
-the edge and loses its advantage when it is sampled obliquely.
+(Sect.~\ref{subsec:angle}). We attribute that exception to the misalignment, but
+the table does not establish the mechanism: the difference is half a metre, and
+at $22^\circ$ the land--water transition sampled along the transect is stretched
+by only $8\%$. The three strategies also return different numbers of valid
+crossings, so their medians are taken over somewhat different
+transect$\times$scene sets; refining on local normals returns the most.
 
 We read this as evidence that the geometry used to \emph{extract} a shoreline
 and the geometry used to \emph{measure} its change are separate design choices,
 and that only the second one has to be fixed: following each scene's own
 contour is the more robust way to refine, and borrowing the measurement
-geometry for that purpose costs accuracy precisely where that geometry has
-drifted from shore-normal. The evidence is indirect, because it reads the
+geometry for that purpose gains least, and at one site loses, where that
+geometry has drifted from shore-normal. The evidence is indirect, because it reads the
 misalignment through its effect on a fitting window; Sect.~\ref{subsec:angle}
 measures the angle itself. The comparison is also sensitive to the reference
 geometry. Scored on the same scenes against the original, detection-derived
@@ -937,9 +958,11 @@ straight microtidal Mediterranean beaches --- which is exactly the regime where 
 own comparison finds fixed and per-scene geometry competitive. Our results
 support that choice for measurement: on clean, ocean-anchored geometry the fixed
 transects stay within a few degrees of shore-normal, and their rates are inflated
-by well under one percent. What they do not support is using the same fixed
-geometry to refine the shoreline within each scene, which costs accuracy wherever
-the transects have drifted from shore-normal, as at a migrating river mouth. Our
+by well under one percent. What they do not support is preferring the same fixed
+geometry for refining the shoreline within each scene: refining along each
+scene's own contour does at least as well at every site, and the fixed geometry gains
+least where the transects have drifted from shore-normal, as at a migrating
+river mouth. Our
 contribution is therefore not to overturn fixed transects but to separate their
 two roles, and to measure the misalignment directly against an explicit null so
 that it can be reported rather than assumed. The measurement also carries a
