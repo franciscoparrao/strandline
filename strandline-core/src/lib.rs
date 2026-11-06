@@ -22,6 +22,8 @@ pub mod otsu;
 pub mod proj;
 pub mod qc;
 pub mod rates;
+pub mod refcheck;
+pub mod reference;
 pub mod satellite_weights;
 pub mod shoreline;
 pub mod slope;

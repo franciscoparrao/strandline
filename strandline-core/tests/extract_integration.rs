@@ -175,3 +175,72 @@ fn nodata_filter_removes_vertices_along_a_scan_gap() {
 
     let _ = std::fs::remove_file(&tmp);
 }
+
+/// Con la propia línea extraída como referencia y un buffer de 300 m, la
+/// extracción no cambia: el buffer contiene toda la costa y la muestra del
+/// umbral sigue siendo esencialmente la misma escena. Con una referencia a
+/// 5 km, fuera de la escena, no queda nada que contornear.
+#[test]
+fn extract_with_reference_buffer() {
+    use strandline_core::reference::ReferenceLine;
+    let ms = fixture("vina_2020-01-10_96px_ms.tif");
+    let qa = fixture("vina_2020-01-10_96px_mask.tif");
+    let base = extract_shoreline(&ms, Some(&qa), &ExtractParams::default()).unwrap();
+    assert!(!base.lines.is_empty());
+
+    let own = ReferenceLine {
+        lines: base.lines.clone(),
+        epsg: base.epsg,
+    };
+    let with_ref = extract_shoreline(
+        &ms,
+        Some(&qa),
+        &ExtractParams {
+            reference: Some(own),
+            max_dist_ref_m: 300.0,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let n_pts = |s: &strandline_core::Shoreline| s.lines.iter().map(|l| l.len()).sum::<usize>();
+    assert_eq!(with_ref.lines.len(), base.lines.len());
+    // la muestra del umbral cambia (solo la franja), así que el umbral y los
+    // vértices pueden moverse un poco; la línea debe quedar en el mismo lugar
+    let max_shift = with_ref.lines[0]
+        .iter()
+        .map(|&p| {
+            base.lines[0]
+                .iter()
+                .map(|&q| ((p.0 - q.0).powi(2) + (p.1 - q.1).powi(2)).sqrt())
+                .fold(f64::INFINITY, f64::min)
+        })
+        .fold(0.0, f64::max);
+    assert!(max_shift < 15.0, "la línea se movió {max_shift:.1} m");
+    assert!(n_pts(&with_ref) > n_pts(&base) / 2);
+
+    let far = ReferenceLine {
+        lines: base
+            .lines
+            .iter()
+            .map(|l| l.iter().map(|&(x, y)| (x + 5000.0, y)).collect())
+            .collect(),
+        epsg: base.epsg,
+    };
+    let none = extract_shoreline(
+        &ms,
+        Some(&qa),
+        &ExtractParams {
+            reference: Some(far),
+            ..Default::default()
+        },
+    );
+    // sin píxeles en la franja, o no hay umbral o no hay líneas
+    match none {
+        Ok(s) => assert!(
+            s.lines.is_empty(),
+            "{} líneas fuera de la franja",
+            s.lines.len()
+        ),
+        Err(e) => assert!(e.to_string().contains("valid"), "error inesperado: {e}"),
+    }
+}

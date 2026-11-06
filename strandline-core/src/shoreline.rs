@@ -14,6 +14,7 @@ use crate::contour::find_contours;
 use crate::error::{Result, StrandlineError};
 use crate::index::{mndwi, nd_index};
 use crate::otsu::{balanced_otsu, otsu_threshold};
+use crate::reference::{reference_buffer, ReferenceLine};
 use crate::subpixel::{refine_line_subpixel, ProfileSettings};
 
 /// Parámetros de extracción.
@@ -83,6 +84,15 @@ pub struct ExtractParams {
     /// Separación (m) entre puntos a lo largo del contorno cuando
     /// `subpixel_refine = true`.
     pub subpixel_spacing_m: f64,
+    /// Línea de referencia opcional. Con ella la extracción se restringe a
+    /// una franja de `max_dist_ref_m` alrededor de la referencia y el umbral
+    /// se calcula solo con los píxeles de esa franja ensanchada 5 píxeles,
+    /// como `reference_shoreline` + `max_dist_ref` de CoastSat (ver
+    /// [`crate::reference`]). `None` (default) = escena completa, el
+    /// comportamiento de siempre.
+    pub reference: Option<ReferenceLine>,
+    /// Semiancho (m) de la franja alrededor de `reference` (default 300).
+    pub max_dist_ref_m: f64,
 }
 
 impl Default for ExtractParams {
@@ -103,6 +113,8 @@ impl Default for ExtractParams {
             mask_kind: MaskKind::QaPixel,
             subpixel_refine: false,
             subpixel_spacing_m: 15.0,
+            reference: None,
+            max_dist_ref_m: 300.0,
         }
     }
 }
@@ -203,6 +215,51 @@ fn values_at(img: &Raster<f32>, mask: &Array2<bool>) -> Vec<f32> {
     out
 }
 
+/// MNDWI de la muestra del umbral y su máscara, cuando hay referencia.
+type ThresholdSample = (Raster<f32>, Array2<bool>);
+
+/// Aplica la línea de referencia, si hay: devuelve el MNDWI a contornear
+/// (NaN fuera del buffer) y, aparte, el MNDWI y la máscara de donde se toma
+/// la muestra del umbral (el buffer ensanchado). Sin referencia devuelve el
+/// MNDWI intacto y `None`, de modo que el comportamiento por defecto no cambia.
+fn apply_reference(
+    ndwi: Raster<f32>,
+    green: &Raster<f32>,
+    params: &ExtractParams,
+) -> Result<(Raster<f32>, Option<ThresholdSample>)> {
+    let Some(reference) = &params.reference else {
+        return Ok((ndwi, None));
+    };
+    let buf = reference_buffer(
+        reference,
+        green.transform(),
+        green.shape(),
+        green.cell_size(),
+        green.crs().and_then(|c| c.epsg()),
+        params.max_dist_ref_m,
+    )?;
+    let outside_nan = |mask: &Array2<bool>| {
+        let mut r = ndwi.clone();
+        for (v, &inside) in r.data_mut().iter_mut().zip(mask.iter()) {
+            if !inside {
+                *v = f32::NAN;
+            }
+        }
+        r
+    };
+    let ndwi_thr = outside_nan(&buf.threshold);
+    let ndwi_contour = outside_nan(&buf.contour);
+    Ok((ndwi_contour, Some((ndwi_thr, buf.threshold))))
+}
+
+/// `mask` ∧ `extra` (o `mask` tal cual si no hay `extra`).
+fn restrict(mask: &Array2<bool>, extra: Option<&Array2<bool>>) -> Array2<bool> {
+    match extra {
+        Some(e) => ndarray::Zip::from(mask).and(e).map_collect(|&a, &b| a && b),
+        None => mask.clone(),
+    }
+}
+
 /// Nivel de umbral seleccionado: `raw` es el valor en la convención del
 /// modo (para `coastsat_compat` es el Otsu del NDWI con signo CoastSat,
 /// negativo), `textbook` el nivel equivalente sobre el MNDWI textbook
@@ -221,6 +278,7 @@ fn select_level(
     cloud_mask: Option<&Array2<bool>>,
     classification: &Option<Classification>,
     params: &ExtractParams,
+    sample_mask: Option<&Array2<bool>>,
 ) -> Result<LevelSelection> {
     if let Some(l) = params.level {
         return Ok(LevelSelection {
@@ -236,8 +294,8 @@ fn select_level(
             // equivalente es el negativo.
             let nir = &bands[params.nir_band - 1];
             let ndwi_cs = nd_index(nir, green, cloud_mask);
-            let water_vals = values_at(&ndwi_cs, &cls.water);
-            let sand_vals = values_at(&ndwi_cs, &cls.sand);
+            let water_vals = values_at(&ndwi_cs, &restrict(&cls.water, sample_mask));
+            let sand_vals = values_at(&ndwi_cs, &restrict(&cls.sand, sample_mask));
             let t = balanced_otsu(&water_vals, &sand_vals)?;
             Ok(LevelSelection {
                 raw: t,
@@ -245,8 +303,8 @@ fn select_level(
             })
         }
         Some(cls) => {
-            let water_vals = values_at(ndwi, &cls.water);
-            let sand_vals = values_at(ndwi, &cls.sand);
+            let water_vals = values_at(ndwi, &restrict(&cls.water, sample_mask));
+            let sand_vals = values_at(ndwi, &restrict(&cls.sand, sample_mask));
             let t = balanced_otsu(&water_vals, &sand_vals)?;
             Ok(LevelSelection {
                 raw: t,
@@ -336,7 +394,8 @@ pub fn prepare_scene(
     let cloud_mask = qa
         .as_ref()
         .map(|q| cloud_mask(q, params.mask_kind, params.cloud_min_size_px));
-    let ndwi = mndwi(green, swir1, cloud_mask.as_ref());
+    let (ndwi, ndwi_sample) =
+        apply_reference(mndwi(green, swir1, cloud_mask.as_ref()), green, params)?;
 
     let classification: Option<Classification> = if use_classifier {
         let px_area = green.cell_size().powi(2);
@@ -352,10 +411,11 @@ pub fn prepare_scene(
     let level = select_level(
         &bands,
         green,
-        &ndwi,
+        ndwi_sample.as_ref().map_or(&ndwi, |(r, _)| r),
         cloud_mask.as_ref(),
         &classification,
         params,
+        ndwi_sample.as_ref().map(|(_, m)| m),
     )?;
 
     let classification_summary = classification.as_ref().map(|cls| {
@@ -437,7 +497,8 @@ pub fn extract_shoreline(
     let t_read = t0.elapsed().as_secs_f64() * 1000.0;
 
     let t1 = Instant::now();
-    let ndwi = mndwi(green, swir1, cloud_mask.as_ref());
+    let (ndwi, ndwi_sample) =
+        apply_reference(mndwi(green, swir1, cloud_mask.as_ref()), green, params)?;
     let t_mndwi = t1.elapsed().as_secs_f64() * 1000.0;
 
     let t_classify_start = Instant::now();
@@ -458,10 +519,11 @@ pub fn extract_shoreline(
     let level = select_level(
         &bands,
         green,
-        &ndwi,
+        ndwi_sample.as_ref().map_or(&ndwi, |(r, _)| r),
         cloud_mask.as_ref(),
         &classification,
         params,
+        ndwi_sample.as_ref().map(|(_, m)| m),
     )?;
     // se contornea siempre el MNDWI textbook al nivel textbook; en modo
     // compat es matemáticamente idéntico a contornear el MWI con signo

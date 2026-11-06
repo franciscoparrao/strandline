@@ -1,0 +1,7 @@
+sitio             n | sobre costa (paper 1) |  ambos (paper 1)
+ARICA            85 |       96.5% ( 96.5%) |  94.1% ( 94.1%)   n paper 1 = 85
+COQUIMBO        122 |       66.4% ( 66.4%) |  42.6% ( 42.6%)   n paper 1 = 122
+VINA_DEL_MAR     72 |        1.4% (  1.4%) |   1.4% (  1.4%)   n paper 1 = 72
+CONSTITUCION     81 |        8.6% (  8.6%) |   4.9% (  4.9%)   n paper 1 = 81
+VALDIVIA         38 |       21.1% ( 21.1%) |  15.8% ( 15.8%)   n paper 1 = 38
+CHILOE           61 |       72.1% ( 72.1%) |  59.0% ( 59.0%)   n paper 1 = 61

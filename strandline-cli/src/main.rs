@@ -7,10 +7,11 @@ mod fetch;
 use std::path::PathBuf;
 
 use anyhow::Context;
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use strandline_core::cloud::MaskKind;
 use strandline_core::qc::{self, QcCriteria};
 use strandline_core::rates::{compute_rates, decimal_year_from_mjd, despike};
+use strandline_core::reference::ReferenceLine;
 use strandline_core::shoreline::prepare_scene;
 use strandline_core::slope::{estimate_beach_slope, SlopeSettings};
 use strandline_core::stl::decompose as stl_decompose;
@@ -111,8 +112,81 @@ fn csv_header(line: &str) -> Vec<String> {
         .collect()
 }
 
+/// Línea de referencia para restringir la extracción a la franja alrededor de
+/// una costa conocida (equivalente a `reference_shoreline` + `max_dist_ref` de
+/// CoastSat).
+#[derive(Args, Debug, Clone)]
+struct ReferenceArgs {
+    /// Línea de referencia: GeoJSON (LineString/MultiLineString, lon/lat
+    /// salvo que declare otro `crs`) o CSV (easting, northing[, part]). Sin
+    /// ella se usa la escena completa.
+    #[arg(long)]
+    reference: Option<PathBuf>,
+    /// EPSG de la referencia. Default: 4326 para GeoJSON sin `crs`; el CRS
+    /// de la escena para CSV.
+    #[arg(long)]
+    reference_epsg: Option<u32>,
+    /// Semiancho (m) de la franja alrededor de la referencia. El umbral se
+    /// calcula con los píxeles de la franja ensanchada 5 píxeles.
+    #[arg(long, default_value_t = 300.0)]
+    max_dist_ref: f64,
+}
+
+impl ReferenceArgs {
+    fn load(&self) -> anyhow::Result<Option<ReferenceLine>> {
+        self.reference
+            .as_ref()
+            .map(|p| read_reference(p, self.reference_epsg))
+            .transpose()
+    }
+}
+
 #[derive(Subcommand)]
 enum Command {
+    /// Chequea la geometría de la referencia: si cada transecto mide la costa
+    /// que se quiere estudiar. Compara el ancla (punto medio del transecto),
+    /// su elevación y, opcionalmente, los cruces medidos con una costa
+    /// independiente (por ejemplo `natural=coastline` de OpenStreetMap). Una
+    /// referencia desviada hacia un estuario o un río pasa los controles de
+    /// calidad estadísticos; este chequeo la detecta por su geometría.
+    Refcheck {
+        /// CSV de transectos (name, origin_e, origin_n, end_e, end_n).
+        #[arg(long)]
+        transects: PathBuf,
+        /// EPSG de los transectos (UTM WGS84 326xx/327xx).
+        #[arg(long)]
+        transects_epsg: u32,
+        /// Costa independiente: GeoJSON (lon/lat salvo `crs`) o CSV
+        /// (easting, northing[, part]).
+        #[arg(long)]
+        coastline: PathBuf,
+        /// EPSG de la costa (default: 4326 para GeoJSON sin `crs`; el de los
+        /// transectos para CSV).
+        #[arg(long)]
+        coastline_epsg: Option<u32>,
+        /// Modelo de elevación GeoTIFF opcional para el criterio de altura del
+        /// ancla. Ojo: un DSM (Copernicus GLO-30) marca de más donde hay
+        /// vegetación o edificios; un DTM (FABDEM) es más fiel.
+        #[arg(long)]
+        dem: Option<PathBuf>,
+        /// CSV de intersecciones opcional (transect, shoreline_id,
+        /// chainage_m), salida de `intersect`: agrega el test sobre los
+        /// cruces medidos.
+        #[arg(long)]
+        intersections: Option<PathBuf>,
+        /// Distancia máxima (m) a la costa del ancla y de los cruces.
+        #[arg(long, default_value_t = 200.0)]
+        max_dist: f64,
+        /// Elevación máxima (m) del ancla.
+        #[arg(long, default_value_t = 5.0)]
+        max_elev: f64,
+        /// Fracción mínima de transectos que pasan para no marcar el sitio.
+        #[arg(long, default_value_t = 0.5)]
+        site_min_pass: f64,
+        /// CSV de salida por transecto.
+        #[arg(short, long)]
+        output: PathBuf,
+    },
     /// Extrae la shoreline subpixel de un GeoTIFF multiespectral.
     Extract {
         /// GeoTIFF multiespectral de entrada (bandas B,G,R,NIR,SWIR1).
@@ -173,6 +247,8 @@ enum Command {
         /// paridad exacta con CoastSat para comparaciones/validación.
         #[arg(long)]
         subpixel_refine: bool,
+        #[command(flatten)]
+        reference: ReferenceArgs,
         /// EPSG de salida (4326 o UTM WGS84 326xx/327xx). Con 4326 el
         /// GeoJSON es conforme a RFC 7946. Default: CRS nativo de la escena.
         #[arg(long)]
@@ -257,6 +333,8 @@ enum Command {
         /// Incertidumbre 1σ del umbral (unidades MNDWI) para la σ combinada.
         #[arg(long, default_value_t = 0.0)]
         threshold_sigma: f64,
+        #[command(flatten)]
+        reference: ReferenceArgs,
         /// CSV de salida (transect, chainage_m, x, y, sigma_fit_m,
         /// sigma_total_m, dx_dthreshold, rmse, n).
         #[arg(short, long)]
@@ -339,6 +417,8 @@ enum Command {
         /// aplica una vez, a la ganadora — no a todas las candidatas.
         #[arg(long)]
         subpixel_refine: bool,
+        #[command(flatten)]
+        reference: ReferenceArgs,
         /// CSV de salida (easting, northing) para `transects --baseline`.
         #[arg(short, long)]
         output: PathBuf,
@@ -878,6 +958,108 @@ fn read_shorelines_csv(path: &PathBuf, strict: bool) -> anyhow::Result<Shoreline
 }
 
 /// Lee una línea base desde CSV con columnas `easting`, `northing`.
+/// Lee una línea de referencia (o una costa) desde GeoJSON o CSV.
+///
+/// GeoJSON: toma las geometrías LineString y MultiLineString de una
+/// FeatureCollection, un Feature o una geometría suelta. El EPSG sale de
+/// `epsg`; si no, del member `crs` legacy (`"urn:ogc:def:crs:EPSG::32719"`);
+/// si no, 4326 (RFC 7946). CSV: columnas `easting`, `northing` y, opcional,
+/// `part` para separar polilíneas; EPSG = `epsg` o el de la escena.
+fn read_reference(path: &PathBuf, epsg: Option<u32>) -> anyhow::Result<ReferenceLine> {
+    let text = std::fs::read_to_string(path)
+        .with_context(|| format!("leyendo referencia {}", path.display()))?;
+    let is_json = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("json") || e.eq_ignore_ascii_case("geojson"));
+    if is_json {
+        let v: serde_json::Value = serde_json::from_str(&text)
+            .with_context(|| format!("GeoJSON inválido: {}", path.display()))?;
+        let declared = v
+            .pointer("/crs/properties/name")
+            .and_then(|n| n.as_str())
+            .and_then(|n| n.rsplit(':').next())
+            .and_then(|code| code.parse::<u32>().ok());
+        let mut lines = Vec::new();
+        fn coords(c: &serde_json::Value) -> Vec<(f64, f64)> {
+            c.as_array()
+                .map(|pts| {
+                    pts.iter()
+                        .filter_map(|p| Some((p.get(0)?.as_f64()?, p.get(1)?.as_f64()?)))
+                        .collect()
+                })
+                .unwrap_or_default()
+        }
+        fn walk(g: &serde_json::Value, out: &mut Vec<Vec<(f64, f64)>>) {
+            match g.get("type").and_then(|t| t.as_str()) {
+                Some("FeatureCollection") => {
+                    for f in g["features"].as_array().into_iter().flatten() {
+                        walk(f, out);
+                    }
+                }
+                Some("Feature") => walk(&g["geometry"], out),
+                Some("LineString") => out.push(coords(&g["coordinates"])),
+                Some("MultiLineString") => {
+                    for l in g["coordinates"].as_array().into_iter().flatten() {
+                        out.push(coords(l));
+                    }
+                }
+                Some("GeometryCollection") => {
+                    for gg in g["geometries"].as_array().into_iter().flatten() {
+                        walk(gg, out);
+                    }
+                }
+                _ => {}
+            }
+        }
+        walk(&v, &mut lines);
+        lines.retain(|l| !l.is_empty());
+        anyhow::ensure!(
+            !lines.is_empty(),
+            "{}: sin LineString ni MultiLineString",
+            path.display()
+        );
+        return Ok(ReferenceLine {
+            lines,
+            epsg: Some(epsg.or(declared).unwrap_or(4326)),
+        });
+    }
+    let mut rows = text.lines().filter(|l| !l.trim().is_empty());
+    let header: Vec<String> = rows
+        .next()
+        .unwrap_or_default()
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .collect();
+    let col = |name: &str| header.iter().position(|c| c == name);
+    let ei = col("easting").context("falta columna 'easting'")?;
+    let ni = col("northing").context("falta columna 'northing'")?;
+    let pi = col("part");
+    let mut lines: Vec<Vec<(f64, f64)>> = Vec::new();
+    let mut current: Option<String> = None;
+    for (k, l) in rows.enumerate() {
+        let f: Vec<&str> = l.split(',').map(|x| x.trim()).collect();
+        let parse = |i: usize| -> anyhow::Result<f64> {
+            f.get(i)
+                .context("fila incompleta")?
+                .parse::<f64>()
+                .with_context(|| format!("{}: fila {} no numérica", path.display(), k + 2))
+        };
+        let part = pi.and_then(|i| f.get(i).map(|s| s.to_string()));
+        if lines.is_empty() || part != current {
+            lines.push(Vec::new());
+            current = part;
+        }
+        lines.last_mut().unwrap().push((parse(ei)?, parse(ni)?));
+    }
+    anyhow::ensure!(
+        lines.iter().any(|l| !l.is_empty()),
+        "{}: sin vértices",
+        path.display()
+    );
+    Ok(ReferenceLine { lines, epsg })
+}
+
 fn read_baseline(path: &PathBuf) -> anyhow::Result<Vec<(f64, f64)>> {
     let text = std::fs::read_to_string(path)
         .with_context(|| format!("leyendo baseline {}", path.display()))?;
@@ -929,6 +1111,127 @@ fn write_transects_csv(transects: &[Transect], path: &PathBuf) -> anyhow::Result
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli.command {
+        Command::Refcheck {
+            transects,
+            transects_epsg,
+            coastline,
+            coastline_epsg,
+            dem,
+            intersections,
+            max_dist,
+            max_elev,
+            site_min_pass,
+            output,
+        } => {
+            use strandline_core::refcheck::{
+                check_transects, sample_raster, summarize, RefcheckSettings,
+            };
+            let (ts, names) = read_transects_csv(&transects, cli.strict)?;
+            anyhow::ensure!(!ts.is_empty(), "no hay transectos");
+            let coast = read_reference(&coastline, coastline_epsg)?;
+            let coast_lines: Vec<Vec<(f64, f64)>> = coast
+                .lines
+                .iter()
+                .map(|l| {
+                    strandline_core::transform_points(
+                        l,
+                        coast.epsg.unwrap_or(transects_epsg),
+                        transects_epsg,
+                    )
+                })
+                .collect::<Result<_, _>>()?;
+            let anchors: Vec<(f64, f64)> = ts.iter().map(|t| t.midpoint()).collect();
+            let elev = match &dem {
+                Some(p) => {
+                    let r = strandline_core::refcheck::read_raster(p)
+                        .with_context(|| format!("leyendo modelo de elevación {}", p.display()))?;
+                    Some(sample_raster(&r, &anchors, transects_epsg)?)
+                }
+                None => None,
+            };
+            let crossings: Option<Vec<Vec<f64>>> = match &intersections {
+                Some(p) => {
+                    let text = std::fs::read_to_string(p)
+                        .with_context(|| format!("leyendo intersecciones {}", p.display()))?;
+                    let mut rows = text.lines().filter(|l| !l.trim().is_empty());
+                    let h = csv_header(rows.next().unwrap_or_default());
+                    let ti = h
+                        .iter()
+                        .position(|c| c == "transect")
+                        .context("falta 'transect'")?;
+                    let ci = h
+                        .iter()
+                        .position(|c| c == "chainage_m")
+                        .context("falta 'chainage_m'")?;
+                    let mut by: std::collections::HashMap<String, Vec<f64>> = Default::default();
+                    for l in rows {
+                        let f: Vec<&str> = l.split(',').map(|x| x.trim()).collect();
+                        if let (Some(t), Some(c)) =
+                            (f.get(ti), f.get(ci).and_then(|c| c.parse::<f64>().ok()))
+                        {
+                            by.entry(t.to_string()).or_default().push(c);
+                        }
+                    }
+                    Some(
+                        names
+                            .iter()
+                            .map(|n| by.remove(n).unwrap_or_default())
+                            .collect(),
+                    )
+                }
+                None => None,
+            };
+            let settings = RefcheckSettings {
+                max_dist_m: max_dist,
+                max_elev_m: max_elev,
+                site_min_pass,
+            };
+            let rows = check_transects(
+                &ts,
+                &coast_lines,
+                elev.as_deref(),
+                crossings.as_deref(),
+                &settings,
+            );
+            let opt = |v: Option<f64>| v.map(|x| format!("{x:.3}")).unwrap_or_default();
+            let optb = |v: Option<bool>| v.map(|b| b.to_string()).unwrap_or_default();
+            let mut out = String::from(
+                "transect,anchor_e,anchor_n,anchor_dist_m,anchor_elev_m,n_crossings,\
+                 crossing_median_dist_m,crossing_frac_near,pass_dist,pass_elev,pass\n",
+            );
+            for (n, r) in names.iter().zip(&rows) {
+                out.push_str(&format!(
+                    "{n},{:.3},{:.3},{:.3},{},{},{},{},{},{},{}\n",
+                    r.anchor.0,
+                    r.anchor.1,
+                    r.anchor_dist_m,
+                    opt(r.anchor_elev_m),
+                    r.n_crossings,
+                    opt(r.crossing_median_dist_m),
+                    opt(r.crossing_frac_near),
+                    r.pass_dist,
+                    optb(r.pass_elev),
+                    r.pass
+                ));
+            }
+            std::fs::write(&output, out)
+                .with_context(|| format!("escribiendo {}", output.display()))?;
+            let sum = summarize(&rows, &settings);
+            eprintln!(
+                "{} transectos: {:.1} % con el ancla a ≤{max_dist} m de la costa{}; {:.1} % pasan → {}",
+                sum.n,
+                100.0 * sum.frac_pass_dist,
+                sum.frac_pass_elev
+                    .map(|f| format!(", {:.1} % bajo {max_elev} m", 100.0 * f))
+                    .unwrap_or_default(),
+                100.0 * sum.frac_pass,
+                if sum.contaminated {
+                    format!("REFERENCIA SOSPECHOSA (< {:.0} % pasa)", 100.0 * site_min_pass)
+                } else {
+                    "geometría consistente con la costa".to_string()
+                }
+            );
+        }
         Command::Extract {
             ms,
             mask,
@@ -946,6 +1249,7 @@ fn main() -> anyhow::Result<()> {
             cloud_min_size,
             mask_kind,
             subpixel_refine,
+            reference,
             output_epsg,
             output,
         } => {
@@ -965,6 +1269,8 @@ fn main() -> anyhow::Result<()> {
                 mask_kind: parse_mask_kind(&mask_kind)?,
                 subpixel_refine,
                 subpixel_spacing_m: 15.0,
+                reference: reference.load()?,
+                max_dist_ref_m: reference.max_dist_ref,
             };
             warn_classifier_on_sr(&ms, params.use_classifier, coastsat_compat);
             let mut shoreline = extract_shoreline(&ms, mask.as_deref(), &params)
@@ -1041,6 +1347,7 @@ fn main() -> anyhow::Result<()> {
             mask_kind,
             georef_rmse,
             threshold_sigma,
+            reference,
             output,
         } => {
             let params = ExtractParams {
@@ -1048,6 +1355,8 @@ fn main() -> anyhow::Result<()> {
                 use_classifier: classify || coastsat_compat,
                 coastsat_compat,
                 mask_kind: parse_mask_kind(&mask_kind)?,
+                reference: reference.load()?,
+                max_dist_ref_m: reference.max_dist_ref,
                 ..Default::default()
             };
             warn_classifier_on_sr(&ms, params.use_classifier, coastsat_compat);
@@ -1240,6 +1549,7 @@ fn main() -> anyhow::Result<()> {
             dist_nodata,
             mask_kind,
             subpixel_refine,
+            reference,
             output,
         } => {
             let params = ExtractParams {
@@ -1258,6 +1568,8 @@ fn main() -> anyhow::Result<()> {
                 mask_kind: parse_mask_kind(&mask_kind)?,
                 subpixel_refine: false, // el contorno crudo decide la selección; se refina solo la ganadora
                 subpixel_spacing_m: 15.0,
+                reference: reference.load()?,
+                max_dist_ref_m: reference.max_dist_ref,
             };
 
             let mut ms_paths: Vec<PathBuf> = std::fs::read_dir(&dir)
