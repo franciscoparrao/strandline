@@ -1,0 +1,88 @@
+# Grafo de prerrequisitos (diseño inverso) del manuscrito de strandline
+# (Computers & Geosciences, borrador). Cima: lo que el paper sostiene haber
+# mostrado. Cada concepto declara su nivel y lo que necesita saber antes.
+afirmaciones:
+  - id: a1
+    corto: "Copia fiel de CoastSat"
+    texto: "strandline reproduce el método de CoastSat etapa por etapa: la clasificación coincide a menos de 1,5 % en píxeles, la línea de costa a una mediana de 0,2 m en las mismas escenas, la marea sintetizada a 1,15 mm de pyTMD, y los transectos, las tasas y el control de calidad a nivel de redondeo."
+    ref: "Resumen, p. 2-3; Sec. 2.2-2.6, p. 8-12; Sec. 5.1, p. 20"
+    requiere: [c-strandline, c-equivalencia, c-coastsat, c-correccion-mareal, c-control-calidad, c-divergencias]
+  - id: a2
+    corto: "Mucho más rápido, sin dependencias"
+    texto: "La intersección de transectos corre unas 280 veces más rápido que la referencia vectorizada en Python sobre el mismo cálculo (37 veces con un solo hilo), con salidas paralela y secuencial idénticas bit a bit, y el motor se instala como un solo binario, sin la cadena de dependencias de la marea."
+    ref: "Sec. 5.2 y Tabla 2, p. 20-21; Sec. 2.4, p. 9-10"
+    requiere: [c-strandline, c-razon-intercalada, c-paralelo-determinista, c-interseccion, c-constituyentes]
+  - id: a3
+    corto: "Extraer y medir son distintos"
+    texto: "En imágenes SR contra transectos anclados al mar, refinar la línea de costa sobre normales locales da el menor error mediano (12,5 frente a 16,0 m sin refinar en los sitios complejos); ajustar un perfil sobre los transectos fijos mejora menos y solo empeora donde están desalineados (Constitución). Los autores lo leen como evidencia, indirecta, de que la geometría para extraer y la geometría para medir son decisiones separadas y que solo la segunda debe ser fija."
+    ref: "Sec. 5.4 y Tabla 3, p. 22-25"
+    requiere: [c-geom-extraccion-medicion, c-ajuste-perfil, c-referencia-desviada]
+  - id: a4
+    corto: "Transectos limpios ~6°; desviados fingen 40°"
+    texto: "Medido contra una nula sobre transectos anclados a la costa oceánica, el ángulo persistente entre los transectos fijos y la normal local es chico (mediana 5,7°, inflación de tasa de 0,5 %), salvo en la desembocadura del Maule (22°, inflación de 8 % como máximo); sobre transectos cuya referencia se desvió tierra adentro, la misma medición da un falso 39,9° que pasa las pruebas de coherencia espacial y temporal."
+    ref: "Sec. 5.5, p. 24-28; Tabla 4, p. 27; Fig. 3, p. 31"
+    requiere: [c-angulo-persistente, c-supuesto-local, c-permutacion, c-referencia-desviada]
+  - id: a5
+    corto: "Precisión por sensor depende del sitio"
+    texto: "Las diferencias de precisión entre sensores son chicas, cambian de orden entre sitios y son menores que las que supone la tabla fija de pesos del estudio de referencia; por eso los pesos deben calibrarse y validarse por sitio y no aplicarse a ciegas."
+    ref: "Sec. 5.6 y Tabla 5, p. 32-33"
+    requiere: [c-pesos-sensor, c-referencia-desviada]
+  - id: a6
+    corto: "Límite: clasificador solo TOA"
+    texto: "El clasificador de CoastSat está entrenado con reflectancia en el techo de la atmósfera y no se transfiere a reflectancia de superficie; con esos productos el motor usa un umbral de Otsu refinado sin clasificador, y un clasificador reentrenado queda como trabajo futuro."
+    ref: "Sec. 7, p. 36"
+    requiere: [c-clasificador, c-toa-sr]
+
+conceptos:
+  # Nivel 0 · Intuición
+  - {id: c-costa-movil, termino: "Línea de costa que se mueve", nivel: 0, requiere: []}
+  - {id: c-foto-cuadraditos, termino: "Imagen hecha de cuadraditos", nivel: 0, requiere: []}
+  - {id: c-agua-oscura, termino: "El agua se traga la luz", nivel: 0, requiere: []}
+  - {id: c-regla-playa, termino: "Regla clavada en la playa", nivel: 0, requiere: [c-costa-movil]}
+  - {id: c-tendencia-ruido, termino: "Tendencia entre mediciones ruidosas", nivel: 0, requiere: [c-regla-playa]}
+  - {id: c-receta-ingredientes, termino: "Receta con ingredientes ajenos", nivel: 0, requiere: []}
+  - {id: c-copia-fiel, termino: "Copia fiel", nivel: 0, requiere: [c-receta-ingredientes]}
+  # Nivel 1 · Vocabulario
+  - {id: c-pixel, termino: "Píxel y resolución", nivel: 1, requiere: [c-foto-cuadraditos]}
+  - {id: c-banda, termino: "Banda espectral", nivel: 1, requiere: [c-agua-oscura, c-pixel]}
+  - {id: c-reflectancia, termino: "Reflectancia", nivel: 1, requiere: [c-banda]}
+  - {id: c-misiones, termino: "Misiones y sensores", nivel: 1, requiere: [c-banda]}
+  - {id: c-mascara-nubes, termino: "Máscara de nubes", nivel: 1, requiere: [c-pixel]}
+  - {id: c-transecto, termino: "Transecto y línea base", nivel: 1, requiere: [c-regla-playa]}
+  - {id: c-chainage, termino: "Distancia a lo largo del transecto", nivel: 1, requiere: [c-transecto], umbral: true}
+  - {id: c-marea, termino: "Marea", nivel: 1, requiere: [c-costa-movil]}
+  - {id: c-resumen-estadistico, termino: "Mediana, media y percentil 90", nivel: 1, requiere: [c-tendencia-ruido]}
+  - {id: c-compilado, termino: "Programa compilado e interpretado", nivel: 1, requiere: [c-receta-ingredientes]}
+  # Nivel 2 · Fundamentos
+  - {id: c-diferencia-normalizada, termino: "Diferencia normalizada", nivel: 2, requiere: [c-reflectancia]}
+  - {id: c-mndwi, termino: "MNDWI", nivel: 2, requiere: [c-diferencia-normalizada, c-banda, c-agua-oscura]}
+  - {id: c-otsu, termino: "Umbral de Otsu", nivel: 2, requiere: [c-mndwi]}
+  - {id: c-contorno-subpixel, termino: "Contorno subpíxel", nivel: 2, requiere: [c-otsu, c-pixel], umbral: true}
+  - {id: c-clasificador, termino: "Clasificador de píxeles", nivel: 2, requiere: [c-reflectancia]}
+  - {id: c-toa-sr, termino: "Reflectancia TOA y de superficie", nivel: 2, requiere: [c-reflectancia]}
+  - {id: c-constituyentes, termino: "Constituyentes de marea", nivel: 2, requiere: [c-marea]}
+  - {id: c-correccion-mareal, termino: "Corrección mareal", nivel: 2, requiere: [c-constituyentes, c-chainage]}
+  - {id: c-regresion, termino: "Regresión lineal y R²", nivel: 2, requiere: [c-tendencia-ruido]}
+  - {id: c-coseno, termino: "Distancia oblicua", nivel: 2, requiere: [c-chainage], umbral: true}
+  - {id: c-correlacion, termino: "Correlación", nivel: 2, requiere: [c-regresion]}
+  # Nivel 3 · Métodos
+  - {id: c-coastsat, termino: "Cadena de CoastSat", nivel: 3, requiere: [c-clasificador, c-otsu, c-contorno-subpixel, c-mascara-nubes]}
+  - {id: c-otsu-balanceado, termino: "Otsu balanceado", nivel: 3, requiere: [c-otsu, c-clasificador]}
+  - {id: c-interseccion, termino: "Intersección con franja", nivel: 3, requiere: [c-chainage, c-contorno-subpixel]}
+  - {id: c-tasas, termino: "Tasas de cambio", nivel: 3, requiere: [c-regresion, c-interseccion]}
+  - {id: c-pesos-sensor, termino: "Pesos por sensor", nivel: 3, requiere: [c-tasas, c-misiones]}
+  - {id: c-control-calidad, termino: "Control de calidad", nivel: 3, requiere: [c-tasas]}
+  - {id: c-paralelo-determinista, termino: "Paralelismo determinista", nivel: 3, requiere: [c-compilado]}
+  - {id: c-equivalencia, termino: "Prueba de equivalencia", nivel: 3, requiere: [c-copia-fiel, c-resumen-estadistico]}
+  - {id: c-ajuste-perfil, termino: "Ajuste de perfil", nivel: 3, requiere: [c-contorno-subpixel, c-transecto]}
+  - {id: c-nula, termino: "Distribución nula", nivel: 3, requiere: [c-resumen-estadistico], umbral: true}
+  - {id: c-rectificada, termino: "Cantidad rectificada", nivel: 3, requiere: [c-nula, c-coseno]}
+  - {id: c-permutacion, termino: "Prueba de permutación", nivel: 3, requiere: [c-correlacion, c-nula]}
+  # Nivel 4 · El manuscrito
+  - {id: c-strandline, termino: "strandline", nivel: 4, requiere: [c-compilado, c-coastsat]}
+  - {id: c-divergencias, termino: "Divergencias documentadas", nivel: 4, requiere: [c-otsu-balanceado, c-coastsat]}
+  - {id: c-razon-intercalada, termino: "Razón intercalada", nivel: 4, requiere: [c-paralelo-determinista, c-resumen-estadistico]}
+  - {id: c-referencia-desviada, termino: "Referencia desviada", nivel: 4, requiere: [c-transecto, c-equivalencia]}
+  - {id: c-geom-extraccion-medicion, termino: "Geometría de extracción y de medición", nivel: 4, requiere: [c-ajuste-perfil, c-interseccion], umbral: true}
+  - {id: c-angulo-persistente, termino: "Ángulo persistente", nivel: 4, requiere: [c-coseno, c-rectificada, c-nula]}
+  - {id: c-supuesto-local, termino: "Supuesto local", nivel: 4, requiere: [c-angulo-persistente, c-tasas]}

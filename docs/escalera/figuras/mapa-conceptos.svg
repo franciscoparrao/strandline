@@ -1,0 +1,277 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 606 1302" width="606" height="1302" font-family="Inter, Segoe UI, system-ui, sans-serif" font-size="13" role="img" aria-label="Mapa de prerrequisitos">
+<rect x="0" y="172" width="606" height="188" fill="#8A8F98" fill-opacity="0.07"/>
+<rect x="0" y="598" width="606" height="214" fill="#8A8F98" fill-opacity="0.07"/>
+<rect x="0" y="1098" width="606" height="188" fill="#8A8F98" fill-opacity="0.07"/>
+<g fill="none" stroke="#8A8F98" stroke-opacity="0.6" stroke-width="1.2">
+<path d="M507.0,306 C507.0,195.0 99.0,195.0 99.0,84"/>
+<path d="M303.0,206 C303.0,145.0 99.0,145.0 99.0,84"/>
+<path d="M507.0,456 C507.0,270.0 99.0,270.0 99.0,84"/>
+<path d="M99.0,456 C99.0,270.0 99.0,270.0 99.0,84"/>
+<path d="M405.0,632 C405.0,358.0 99.0,358.0 99.0,84"/>
+<path d="M507.0,306 C507.0,195.0 303.0,195.0 303.0,84"/>
+<path d="M303.0,414 C303.0,249.0 303.0,249.0 303.0,84"/>
+<path d="M303.0,456 C303.0,270.0 303.0,270.0 303.0,84"/>
+<path d="M507.0,774 C507.0,429.0 303.0,429.0 303.0,84"/>
+<path d="M99.0,540 C99.0,312.0 303.0,312.0 303.0,84"/>
+<path d="M507.0,248 C507.0,166.0 303.0,166.0 303.0,84"/>
+<path d="M303.0,716 C303.0,400.0 507.0,400.0 507.0,84"/>
+<path d="M507.0,716 C507.0,400.0 507.0,400.0 507.0,84"/>
+<path d="M99.0,306 C99.0,224.0 99.0,224.0 99.0,142"/>
+<path d="M99.0,414 C99.0,278.0 99.0,278.0 99.0,142"/>
+<path d="M99.0,248 C99.0,195.0 99.0,195.0 99.0,142"/>
+<path d="M99.0,498 C99.0,320.0 303.0,320.0 303.0,142"/>
+<path d="M99.0,248 C99.0,195.0 303.0,195.0 303.0,142"/>
+<path d="M303.0,248 C303.0,195.0 507.0,195.0 507.0,142"/>
+<path d="M303.0,306 C303.0,224.0 507.0,224.0 507.0,142"/>
+<path d="M303.0,498 C303.0,320.0 507.0,320.0 507.0,142"/>
+<path d="M99.0,248 C99.0,195.0 507.0,195.0 507.0,142"/>
+<path d="M507.0,456 C507.0,345.0 303.0,345.0 303.0,234"/>
+<path d="M507.0,924 C507.0,579.0 303.0,579.0 303.0,234"/>
+<path d="M303.0,982 C303.0,637.0 99.0,637.0 99.0,292"/>
+<path d="M303.0,414 C303.0,353.0 99.0,353.0 99.0,292"/>
+<path d="M99.0,674 C99.0,483.0 303.0,483.0 303.0,292"/>
+<path d="M303.0,540 C303.0,416.0 303.0,416.0 303.0,292"/>
+<path d="M507.0,414 C507.0,353.0 303.0,353.0 303.0,292"/>
+<path d="M507.0,498 C507.0,395.0 507.0,395.0 507.0,292"/>
+<path d="M303.0,456 C303.0,374.0 507.0,374.0 507.0,292"/>
+<path d="M99.0,414 C99.0,382.0 99.0,382.0 99.0,350"/>
+<path d="M99.0,456 C99.0,403.0 99.0,403.0 99.0,350"/>
+<path d="M303.0,248 C303.0,299.0 303.0,299.0 303.0,350"/>
+<path d="M507.0,540 C507.0,445.0 303.0,445.0 303.0,350"/>
+<path d="M303.0,866 C303.0,608.0 507.0,608.0 507.0,350"/>
+<path d="M303.0,456 C303.0,403.0 507.0,403.0 507.0,350"/>
+<path d="M303.0,674 C303.0,558.0 99.0,558.0 99.0,442"/>
+<path d="M303.0,982 C303.0,712.0 99.0,712.0 99.0,442"/>
+<path d="M303.0,1132 C303.0,787.0 303.0,787.0 303.0,442"/>
+<path d="M507.0,924 C507.0,683.0 303.0,683.0 303.0,442"/>
+<path d="M507.0,924 C507.0,683.0 507.0,683.0 507.0,442"/>
+<path d="M99.0,982 C99.0,733.0 99.0,733.0 99.0,484"/>
+<path d="M303.0,674 C303.0,579.0 99.0,579.0 99.0,484"/>
+<path d="M303.0,716 C303.0,600.0 303.0,600.0 303.0,484"/>
+<path d="M99.0,774 C99.0,629.0 303.0,629.0 303.0,484"/>
+<path d="M303.0,674 C303.0,579.0 303.0,579.0 303.0,484"/>
+<path d="M507.0,1040 C507.0,762.0 303.0,762.0 303.0,484"/>
+<path d="M303.0,866 C303.0,675.0 507.0,675.0 507.0,484"/>
+<path d="M507.0,540 C507.0,533.0 99.0,533.0 99.0,526"/>
+<path d="M303.0,1040 C303.0,783.0 99.0,783.0 99.0,526"/>
+<path d="M303.0,774 C303.0,650.0 303.0,650.0 303.0,526"/>
+<path d="M507.0,414 C507.0,470.0 303.0,470.0 303.0,526"/>
+<path d="M99.0,774 C99.0,650.0 507.0,650.0 507.0,526"/>
+<path d="M303.0,716 C303.0,621.0 507.0,621.0 507.0,526"/>
+<path d="M507.0,540 C507.0,522 99.0,522 99.0,540"/>
+<path d="M507.0,414 C507.0,491.0 303.0,491.0 303.0,568"/>
+<path d="M99.0,674 C99.0,621.0 303.0,621.0 303.0,568"/>
+<path d="M201.0,632 C201.0,600.0 507.0,600.0 507.0,568"/>
+<path d="M99.0,456 C99.0,512.0 507.0,512.0 507.0,568"/>
+<path d="M303.0,1174 C303.0,917.0 201.0,917.0 201.0,660"/>
+<path d="M507.0,982 C507.0,821.0 405.0,821.0 405.0,660"/>
+<path d="M99.0,982 C99.0,842.0 99.0,842.0 99.0,702"/>
+<path d="M99.0,774 C99.0,738.0 303.0,738.0 303.0,702"/>
+<path d="M303.0,924 C303.0,813.0 303.0,813.0 303.0,702"/>
+<path d="M99.0,716 C99.0,709.0 507.0,709.0 507.0,702"/>
+<path d="M99.0,924 C99.0,813.0 507.0,813.0 507.0,702"/>
+<path d="M507.0,1232 C507.0,967.0 507.0,967.0 507.0,702"/>
+<path d="M99.0,1040 C99.0,900.0 99.0,900.0 99.0,760"/>
+<path d="M99.0,1040 C99.0,900.0 303.0,900.0 303.0,760"/>
+<path d="M99.0,1040 C99.0,900.0 507.0,900.0 507.0,760"/>
+<path d="M507.0,674 C507.0,738.0 99.0,738.0 99.0,802"/>
+<path d="M201.0,632 C201.0,717.0 303.0,717.0 303.0,802"/>
+<path d="M405.0,632 C405.0,717.0 507.0,717.0 507.0,802"/>
+<path d="M99.0,982 C99.0,892.0 507.0,892.0 507.0,802"/>
+<path d="M507.0,1174 C507.0,1042.0 303.0,1042.0 303.0,910"/>
+<path d="M507.0,1232 C507.0,1100.0 99.0,1100.0 99.0,968"/>
+<path d="M303.0,924 C303.0,906 99.0,906 99.0,924"/>
+<path d="M303.0,1232 C303.0,1100.0 303.0,1100.0 303.0,968"/>
+<path d="M303.0,1174 C303.0,1071.0 507.0,1071.0 507.0,968"/>
+<path d="M303.0,982 C303.0,964 99.0,964 99.0,982"/>
+<path d="M99.0,1174 C99.0,1100.0 303.0,1100.0 303.0,1026"/>
+<path d="M99.0,1232 C99.0,1129.0 507.0,1129.0 507.0,1026"/>
+<path d="M99.0,924 C99.0,996.0 99.0,996.0 99.0,1068"/>
+<path d="M99.0,924 C99.0,996.0 303.0,996.0 303.0,1068"/>
+<path d="M303.0,924 C303.0,996.0 507.0,996.0 507.0,1068"/>
+<path d="M507.0,1174 C507.0,1167.0 303.0,1167.0 303.0,1160"/>
+<path d="M99.0,1232 C99.0,1225.0 99.0,1225.0 99.0,1218"/>
+<path d="M99.0,1174 C99.0,1156 303.0,1156 303.0,1174"/>
+</g>
+<text class="halo" x="6.0" y="24" font-size="12" fill="currentColor" stroke="#FBFAF7" stroke-width="5" stroke-linejoin="round" paint-order="stroke"><tspan font-weight="700" fill="#C2410C" letter-spacing="1"></tspan><tspan font-weight="600" dx="0">Afirmaciones del manuscrito</tspan></text>
+<text class="halo" x="6.0" y="190" font-size="12" fill="currentColor" stroke="#FBFAF7" stroke-width="5" stroke-linejoin="round" paint-order="stroke"><tspan font-weight="700" fill="#C2410C" letter-spacing="1">NIVEL 4</tspan><tspan font-weight="600" dx="8">El manuscrito</tspan></text>
+<text class="halo" x="6.0" y="398" font-size="12" fill="currentColor" stroke="#FBFAF7" stroke-width="5" stroke-linejoin="round" paint-order="stroke"><tspan font-weight="700" fill="#C2410C" letter-spacing="1">NIVEL 3</tspan><tspan font-weight="600" dx="8">Métodos</tspan></text>
+<text class="halo" x="6.0" y="616" font-size="12" fill="currentColor" stroke="#FBFAF7" stroke-width="5" stroke-linejoin="round" paint-order="stroke"><tspan font-weight="700" fill="#C2410C" letter-spacing="1">NIVEL 2</tspan><tspan font-weight="600" dx="8">Fundamentos</tspan></text>
+<text class="halo" x="6.0" y="850" font-size="12" fill="currentColor" stroke="#FBFAF7" stroke-width="5" stroke-linejoin="round" paint-order="stroke"><tspan font-weight="700" fill="#C2410C" letter-spacing="1">NIVEL 1</tspan><tspan font-weight="600" dx="8">Vocabulario</tspan></text>
+<text class="halo" x="6.0" y="1116" font-size="12" fill="currentColor" stroke="#FBFAF7" stroke-width="5" stroke-linejoin="round" paint-order="stroke"><tspan font-weight="700" fill="#C2410C" letter-spacing="1">NIVEL 0</tspan><tspan font-weight="600" dx="8">Intuición</tspan></text>
+<rect x="6.0" y="40" width="186" height="44" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="6.0" y="40" width="186" height="44" rx="3" fill="#C2410C" fill-opacity="0.10" stroke="#C2410C" stroke-width="2.4"/>
+<text x="15.0" y="59.6" fill="currentColor">Mucho más rápido, sin</text>
+<text x="15.0" y="75.6" fill="currentColor">dependencias</text>
+<rect x="210.0" y="40" width="186" height="44" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="210.0" y="40" width="186" height="44" rx="3" fill="#C2410C" fill-opacity="0.10" stroke="#C2410C" stroke-width="2.4"/>
+<text x="219.0" y="59.6" fill="currentColor">Copia fiel de CoastSat</text>
+<rect x="414.0" y="40" width="186" height="44" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="414.0" y="40" width="186" height="44" rx="3" fill="#C2410C" fill-opacity="0.10" stroke="#C2410C" stroke-width="2.4"/>
+<text x="423.0" y="59.6" fill="currentColor">Límite: clasificador</text>
+<text x="423.0" y="75.6" fill="currentColor">solo TOA</text>
+<rect x="6.0" y="98" width="186" height="44" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="6.0" y="98" width="186" height="44" rx="3" fill="#C2410C" fill-opacity="0.10" stroke="#C2410C" stroke-width="2.4"/>
+<text x="15.0" y="117.6" fill="currentColor">Extraer y medir son</text>
+<text x="15.0" y="133.6" fill="currentColor">distintos</text>
+<rect x="210.0" y="98" width="186" height="44" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="210.0" y="98" width="186" height="44" rx="3" fill="#C2410C" fill-opacity="0.10" stroke="#C2410C" stroke-width="2.4"/>
+<text x="219.0" y="117.6" fill="currentColor">Precisión por sensor</text>
+<text x="219.0" y="133.6" fill="currentColor">depende del sitio</text>
+<rect x="414.0" y="98" width="186" height="44" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="414.0" y="98" width="186" height="44" rx="3" fill="#C2410C" fill-opacity="0.10" stroke="#C2410C" stroke-width="2.4"/>
+<text x="423.0" y="117.6" fill="currentColor">Transectos limpios ~6°;</text>
+<text x="423.0" y="133.6" fill="currentColor">desviados fingen 40°</text>
+<rect x="210.0" y="206" width="186" height="28" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="210.0" y="206" width="186" height="28" rx="3" fill="#1B6E8A" fill-opacity="0.10" stroke="#1B6E8A" stroke-width="1.2"/>
+<text x="219.0" y="225.6" fill="currentColor">Razón intercalada</text>
+<rect x="6.0" y="248" width="186" height="44" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="6.0" y="248" width="186" height="44" rx="3" fill="#1B6E8A" fill-opacity="0.10" stroke="#1B6E8A" stroke-width="1.2"/>
+<text x="15.0" y="267.6" fill="currentColor">Referencia desviada</text>
+<rect x="210.0" y="248" width="186" height="44" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="210.0" y="248" width="186" height="44" rx="3" fill="#1B6E8A" fill-opacity="0.10" stroke="#1B6E8A" stroke-width="1.2"/>
+<text x="219.0" y="267.6" fill="currentColor">Ángulo persistente</text>
+<rect x="414.0" y="248" width="186" height="44" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="414.0" y="248" width="186" height="44" rx="3" fill="#1B6E8A" fill-opacity="0.10" stroke="#1B6E8A" stroke-width="1.2"/>
+<text x="423.0" y="267.6" fill="currentColor">Divergencias</text>
+<text x="423.0" y="283.6" fill="currentColor">documentadas</text>
+<rect x="6.0" y="306" width="186" height="44" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="6.0" y="306" width="186" height="44" rx="3" fill="#8E3B8E" fill-opacity="0.10" stroke="#8E3B8E" stroke-width="2.4"/>
+<text x="15.0" y="325.6" fill="currentColor">Geometría de extracción</text>
+<text x="15.0" y="341.6" fill="currentColor">y de medición</text>
+<rect x="210.0" y="306" width="186" height="44" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="210.0" y="306" width="186" height="44" rx="3" fill="#1B6E8A" fill-opacity="0.10" stroke="#1B6E8A" stroke-width="1.2"/>
+<text x="219.0" y="325.6" fill="currentColor">Supuesto local</text>
+<rect x="414.0" y="306" width="186" height="44" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="414.0" y="306" width="186" height="44" rx="3" fill="#1B6E8A" fill-opacity="0.10" stroke="#1B6E8A" stroke-width="1.2"/>
+<text x="423.0" y="325.6" fill="currentColor">strandline</text>
+<rect x="6.0" y="414" width="186" height="28" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="6.0" y="414" width="186" height="28" rx="3" fill="#1B6E8A" fill-opacity="0.10" stroke="#1B6E8A" stroke-width="1.2"/>
+<text x="15.0" y="433.6" fill="currentColor">Ajuste de perfil</text>
+<rect x="210.0" y="414" width="186" height="28" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="210.0" y="414" width="186" height="28" rx="3" fill="#1B6E8A" fill-opacity="0.10" stroke="#1B6E8A" stroke-width="1.2"/>
+<text x="219.0" y="433.6" fill="currentColor">Prueba de equivalencia</text>
+<rect x="414.0" y="414" width="186" height="28" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="414.0" y="414" width="186" height="28" rx="3" fill="#8E3B8E" fill-opacity="0.10" stroke="#8E3B8E" stroke-width="2.4"/>
+<text x="423.0" y="433.6" fill="currentColor">Distribución nula</text>
+<rect x="6.0" y="456" width="186" height="28" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="6.0" y="456" width="186" height="28" rx="3" fill="#1B6E8A" fill-opacity="0.10" stroke="#1B6E8A" stroke-width="1.2"/>
+<text x="15.0" y="475.6" fill="currentColor">Intersección con franja</text>
+<rect x="210.0" y="456" width="186" height="28" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="210.0" y="456" width="186" height="28" rx="3" fill="#1B6E8A" fill-opacity="0.10" stroke="#1B6E8A" stroke-width="1.2"/>
+<text x="219.0" y="475.6" fill="currentColor">Cadena de CoastSat</text>
+<rect x="414.0" y="456" width="186" height="28" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="414.0" y="456" width="186" height="28" rx="3" fill="#1B6E8A" fill-opacity="0.10" stroke="#1B6E8A" stroke-width="1.2"/>
+<text x="423.0" y="475.6" fill="currentColor">Paralelismo determinista</text>
+<rect x="6.0" y="498" width="186" height="28" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="6.0" y="498" width="186" height="28" rx="3" fill="#1B6E8A" fill-opacity="0.10" stroke="#1B6E8A" stroke-width="1.2"/>
+<text x="15.0" y="517.6" fill="currentColor">Pesos por sensor</text>
+<rect x="210.0" y="498" width="186" height="28" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="210.0" y="498" width="186" height="28" rx="3" fill="#1B6E8A" fill-opacity="0.10" stroke="#1B6E8A" stroke-width="1.2"/>
+<text x="219.0" y="517.6" fill="currentColor">Prueba de permutación</text>
+<rect x="414.0" y="498" width="186" height="28" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="414.0" y="498" width="186" height="28" rx="3" fill="#1B6E8A" fill-opacity="0.10" stroke="#1B6E8A" stroke-width="1.2"/>
+<text x="423.0" y="517.6" fill="currentColor">Otsu balanceado</text>
+<rect x="6.0" y="540" width="186" height="28" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="6.0" y="540" width="186" height="28" rx="3" fill="#1B6E8A" fill-opacity="0.10" stroke="#1B6E8A" stroke-width="1.2"/>
+<text x="15.0" y="559.6" fill="currentColor">Control de calidad</text>
+<rect x="210.0" y="540" width="186" height="28" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="210.0" y="540" width="186" height="28" rx="3" fill="#1B6E8A" fill-opacity="0.10" stroke="#1B6E8A" stroke-width="1.2"/>
+<text x="219.0" y="559.6" fill="currentColor">Cantidad rectificada</text>
+<rect x="414.0" y="540" width="186" height="28" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="414.0" y="540" width="186" height="28" rx="3" fill="#1B6E8A" fill-opacity="0.10" stroke="#1B6E8A" stroke-width="1.2"/>
+<text x="423.0" y="559.6" fill="currentColor">Tasas de cambio</text>
+<rect x="108.0" y="632" width="186" height="28" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="108.0" y="632" width="186" height="28" rx="3" fill="#1B6E8A" fill-opacity="0.10" stroke="#1B6E8A" stroke-width="1.2"/>
+<text x="117.0" y="651.6" fill="currentColor">Regresión lineal y R²</text>
+<rect x="312.0" y="632" width="186" height="28" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="312.0" y="632" width="186" height="28" rx="3" fill="#1B6E8A" fill-opacity="0.10" stroke="#1B6E8A" stroke-width="1.2"/>
+<text x="321.0" y="651.6" fill="currentColor">Constituyentes de marea</text>
+<rect x="6.0" y="674" width="186" height="28" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="6.0" y="674" width="186" height="28" rx="3" fill="#8E3B8E" fill-opacity="0.10" stroke="#8E3B8E" stroke-width="2.4"/>
+<text x="15.0" y="693.6" fill="currentColor">Distancia oblicua</text>
+<rect x="210.0" y="674" width="186" height="28" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="210.0" y="674" width="186" height="28" rx="3" fill="#8E3B8E" fill-opacity="0.10" stroke="#8E3B8E" stroke-width="2.4"/>
+<text x="219.0" y="693.6" fill="currentColor">Contorno subpíxel</text>
+<rect x="414.0" y="674" width="186" height="28" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="414.0" y="674" width="186" height="28" rx="3" fill="#1B6E8A" fill-opacity="0.10" stroke="#1B6E8A" stroke-width="1.2"/>
+<text x="423.0" y="693.6" fill="currentColor">MNDWI</text>
+<rect x="6.0" y="716" width="186" height="44" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="6.0" y="716" width="186" height="44" rx="3" fill="#1B6E8A" fill-opacity="0.10" stroke="#1B6E8A" stroke-width="1.2"/>
+<text x="15.0" y="735.6" fill="currentColor">Diferencia normalizada</text>
+<rect x="210.0" y="716" width="186" height="44" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="210.0" y="716" width="186" height="44" rx="3" fill="#1B6E8A" fill-opacity="0.10" stroke="#1B6E8A" stroke-width="1.2"/>
+<text x="219.0" y="735.6" fill="currentColor">Clasificador de píxeles</text>
+<rect x="414.0" y="716" width="186" height="44" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="414.0" y="716" width="186" height="44" rx="3" fill="#1B6E8A" fill-opacity="0.10" stroke="#1B6E8A" stroke-width="1.2"/>
+<text x="423.0" y="735.6" fill="currentColor">Reflectancia TOA y de</text>
+<text x="423.0" y="751.6" fill="currentColor">superficie</text>
+<rect x="6.0" y="774" width="186" height="28" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="6.0" y="774" width="186" height="28" rx="3" fill="#1B6E8A" fill-opacity="0.10" stroke="#1B6E8A" stroke-width="1.2"/>
+<text x="15.0" y="793.6" fill="currentColor">Umbral de Otsu</text>
+<rect x="210.0" y="774" width="186" height="28" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="210.0" y="774" width="186" height="28" rx="3" fill="#1B6E8A" fill-opacity="0.10" stroke="#1B6E8A" stroke-width="1.2"/>
+<text x="219.0" y="793.6" fill="currentColor">Correlación</text>
+<rect x="414.0" y="774" width="186" height="28" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="414.0" y="774" width="186" height="28" rx="3" fill="#1B6E8A" fill-opacity="0.10" stroke="#1B6E8A" stroke-width="1.2"/>
+<text x="423.0" y="793.6" fill="currentColor">Corrección mareal</text>
+<rect x="210.0" y="866" width="186" height="44" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="210.0" y="866" width="186" height="44" rx="3" fill="#1B6E8A" fill-opacity="0.10" stroke="#1B6E8A" stroke-width="1.2"/>
+<text x="219.0" y="885.6" fill="currentColor">Programa compilado e</text>
+<text x="219.0" y="901.6" fill="currentColor">interpretado</text>
+<rect x="6.0" y="924" width="186" height="44" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="6.0" y="924" width="186" height="44" rx="3" fill="#1B6E8A" fill-opacity="0.10" stroke="#1B6E8A" stroke-width="1.2"/>
+<text x="15.0" y="943.6" fill="currentColor">Banda espectral</text>
+<rect x="210.0" y="924" width="186" height="44" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="210.0" y="924" width="186" height="44" rx="3" fill="#1B6E8A" fill-opacity="0.10" stroke="#1B6E8A" stroke-width="1.2"/>
+<text x="219.0" y="943.6" fill="currentColor">Píxel y resolución</text>
+<rect x="414.0" y="924" width="186" height="44" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="414.0" y="924" width="186" height="44" rx="3" fill="#1B6E8A" fill-opacity="0.10" stroke="#1B6E8A" stroke-width="1.2"/>
+<text x="423.0" y="943.6" fill="currentColor">Mediana, media y</text>
+<text x="423.0" y="959.6" fill="currentColor">percentil 90</text>
+<rect x="6.0" y="982" width="186" height="44" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="6.0" y="982" width="186" height="44" rx="3" fill="#8E3B8E" fill-opacity="0.10" stroke="#8E3B8E" stroke-width="2.4"/>
+<text x="15.0" y="1001.6" fill="currentColor">Distancia a lo largo del</text>
+<text x="15.0" y="1017.6" fill="currentColor">transecto</text>
+<rect x="210.0" y="982" width="186" height="44" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="210.0" y="982" width="186" height="44" rx="3" fill="#1B6E8A" fill-opacity="0.10" stroke="#1B6E8A" stroke-width="1.2"/>
+<text x="219.0" y="1001.6" fill="currentColor">Transecto y línea base</text>
+<rect x="414.0" y="982" width="186" height="44" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="414.0" y="982" width="186" height="44" rx="3" fill="#1B6E8A" fill-opacity="0.10" stroke="#1B6E8A" stroke-width="1.2"/>
+<text x="423.0" y="1001.6" fill="currentColor">Marea</text>
+<rect x="6.0" y="1040" width="186" height="28" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="6.0" y="1040" width="186" height="28" rx="3" fill="#1B6E8A" fill-opacity="0.10" stroke="#1B6E8A" stroke-width="1.2"/>
+<text x="15.0" y="1059.6" fill="currentColor">Reflectancia</text>
+<rect x="210.0" y="1040" width="186" height="28" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="210.0" y="1040" width="186" height="28" rx="3" fill="#1B6E8A" fill-opacity="0.10" stroke="#1B6E8A" stroke-width="1.2"/>
+<text x="219.0" y="1059.6" fill="currentColor">Misiones y sensores</text>
+<rect x="414.0" y="1040" width="186" height="28" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="414.0" y="1040" width="186" height="28" rx="3" fill="#1B6E8A" fill-opacity="0.10" stroke="#1B6E8A" stroke-width="1.2"/>
+<text x="423.0" y="1059.6" fill="currentColor">Máscara de nubes</text>
+<rect x="210.0" y="1132" width="186" height="28" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="210.0" y="1132" width="186" height="28" rx="3" fill="#1B6E8A" fill-opacity="0.10" stroke="#1B6E8A" stroke-width="1.2"/>
+<text x="219.0" y="1151.6" fill="currentColor">Copia fiel</text>
+<rect x="6.0" y="1174" width="186" height="44" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="6.0" y="1174" width="186" height="44" rx="3" fill="#1B6E8A" fill-opacity="0.10" stroke="#1B6E8A" stroke-width="1.2"/>
+<text x="15.0" y="1193.6" fill="currentColor">Regla clavada en la</text>
+<text x="15.0" y="1209.6" fill="currentColor">playa</text>
+<rect x="210.0" y="1174" width="186" height="44" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="210.0" y="1174" width="186" height="44" rx="3" fill="#1B6E8A" fill-opacity="0.10" stroke="#1B6E8A" stroke-width="1.2"/>
+<text x="219.0" y="1193.6" fill="currentColor">Tendencia entre</text>
+<text x="219.0" y="1209.6" fill="currentColor">mediciones ruidosas</text>
+<rect x="414.0" y="1174" width="186" height="44" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="414.0" y="1174" width="186" height="44" rx="3" fill="#1B6E8A" fill-opacity="0.10" stroke="#1B6E8A" stroke-width="1.2"/>
+<text x="423.0" y="1193.6" fill="currentColor">Receta con ingredientes</text>
+<text x="423.0" y="1209.6" fill="currentColor">ajenos</text>
+<rect x="6.0" y="1232" width="186" height="44" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="6.0" y="1232" width="186" height="44" rx="3" fill="#1B6E8A" fill-opacity="0.10" stroke="#1B6E8A" stroke-width="1.2"/>
+<text x="15.0" y="1251.6" fill="currentColor">Línea de costa que se</text>
+<text x="15.0" y="1267.6" fill="currentColor">mueve</text>
+<rect x="210.0" y="1232" width="186" height="44" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="210.0" y="1232" width="186" height="44" rx="3" fill="#1B6E8A" fill-opacity="0.10" stroke="#1B6E8A" stroke-width="1.2"/>
+<text x="219.0" y="1251.6" fill="currentColor">Imagen hecha de</text>
+<text x="219.0" y="1267.6" fill="currentColor">cuadraditos</text>
+<rect x="414.0" y="1232" width="186" height="44" rx="3" fill="#FFFFFF" style="fill:var(--bg,#FFFFFF)"/>
+<rect x="414.0" y="1232" width="186" height="44" rx="3" fill="#1B6E8A" fill-opacity="0.10" stroke="#1B6E8A" stroke-width="1.2"/>
+<text x="423.0" y="1251.6" fill="currentColor">El agua se traga la luz</text>
+</svg>

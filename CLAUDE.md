@@ -1564,3 +1564,40 @@ benchmark (software + accuracy vs CoastSat + velocidad).
     ad hoc no versionado, regenerable con `/mnt/kingston` y
     `strandline satellite-weights`).
 
+
+- **2026-10-14 → 2026-10-31**: **Desfase L8−L7, reanálisis oceánico, §5.5 invalidado y
+  fusión con el paper 1 de propuesta-4.**
+  - **Desfase L8−L7 de ~+25 m** (reportado por el estudio del gradiente cosísmico):
+    causa = `--coastsat-compat` sobre reflectancia de superficie. El quirk contornea el
+    MNDWI con el Otsu del índice con NIR; sobre SR esa relación depende del sensor (nivel
+    MNDWI efectivo −0,02 en L7 vs +0,38 en L8). Sin el quirk: −4,6 m (Otsu) / +1,5 m
+    (`--level 0`); cirrus y máscara no influyen. El control CoastSat del reporte usaba
+    escenas GEE TOA pansharpened, no Planetary Computer. Commit `5b35876`: aviso en el CLI
+    para escenas `_L2SP_`/`_MSIL2A_` + `tests/sensor_consistency.rs` (fixture fuera del repo,
+    se omite sin él). Quirk verificado en el master de CoastSat (`b9abb0c`, líneas
+    478/504/513), sin issue que lo reporte; documentado en §4.2 del paper.
+  - **§5.4-5.6 re-corridos sobre transectos oceánicos** (`ce90135`, `927e801`): solo 130 de
+    los 538 transectos del ángulo (24 %) estaban sobre la costa oceánica. Oceánico: ángulo
+    persistente **5,7°** (era 39,9°), inflación 0,5 % (era 30 %); solo Constitución 22°.
+    Las pruebas de coherencia espacial y temporal NO distinguen una geometría equivocada
+    pero consistente (orilla de río) de la costa: GOTCHA para cualquier discriminante
+    futuro. Tabla 5 con fuente versionada por primera vez (`spike/satellite_weights/`).
+    `/mnt/kingston/COQUIMBO/COQUIMBO_output.pkl` cambió el 2026-08-31: el Coquimbo de
+    agosto ya no se regenera. Todo cálculo sobre `output/*_analysis.pkl` hereda la
+    contaminación: usar `output_reprocessed/*_analysis_ocean.pkl`.
+  - **Escalera didáctica** en `docs/escalera/` (fuera del repo). Sus pruebas de fidelidad y
+    `verify_refs` encontraron defectos reales del paper (`6bf0d07`): la entrada SHOREX de
+    `refs.bib` era de otro artículo (es Sánchez-García et al. 2020, Coastal Eng.
+    160:103732), la Sec. 4.4 prometía memoria/instalación sin resultados, la explicación de
+    Constitución sobrevendida.
+  - **Fusión aprobada** (`paper/PLAN_fusion_paper1.md`): el paper C&G pasa a ser «motor
+    compatible con CoastSat con chequeos de consistencia incorporados» (referencia,
+    sensores, ángulo); el paper 1 de propuesta-4 entra como el chequeo de referencia.
+    Implementados (sin commitear al cierre): `refcheck` (ancla = punto medio, elevación,
+    cruces medidos vs costa independiente) y `extract/profile/baseline --reference
+    --max-dist-ref` (buffer como CoastSat, marcando segmentos completos). Validado:
+    `refcheck` reproduce **exacto** el diagnóstico del paper 1 en 6 sitios (4/6 marcados);
+    paridad con CoastSat+reference **0,17 m** de mediana. 119 tests, clippy limpio.
+  - Pendiente: subcomandos de sensores y ángulo; validación contra terreno (Vos 2023) y
+    error de OSM; baselines; reescritura; autoría (coautores del paper 1) y Zenodo (dos
+    registros); push + tag + publicación (requieren OK).
