@@ -68,10 +68,12 @@ impl TideCorrection {
     /// `tide` respecto al datum de referencia, según Vos et al. (2019):
     /// `Δx = (tide − reference) / beach_slope`.
     ///
-    /// Positivo cuando la marea está sobre el datum: con marea alta la
-    /// línea de agua aparece más hacia tierra sobre la cara de playa, así
-    /// que la distancia cross-shore cruda es mayor de lo que debería y hay
-    /// que restarle este desplazamiento.
+    /// Es la **magnitud** del desplazamiento, sin signo de convención:
+    /// positivo cuando la marea está sobre el datum, que es cuando la línea
+    /// de agua sube por la cara de playa y queda **hacia tierra** de donde
+    /// estaría en el datum. Cómo se aplica a una distancia cross-shore
+    /// depende del sentido en que crece esa distancia: ver
+    /// [`ChainageDirection`].
     #[inline]
     pub fn horizontal_shift(&self, tide: f64) -> f64 {
         (tide - self.reference_elevation) / self.beach_slope
@@ -90,17 +92,54 @@ impl TideCorrection {
     }
 }
 
-/// Corrige una serie de distancias cross-shore `chainage` a un datum común
-/// dadas las elevaciones de marea `tides` (una por observación) y la
-/// [`TideCorrection`].
+/// Sentido en que crece la distancia cross-shore (chainage) de un transecto.
 ///
-/// `corrected[i] = chainage[i] − (tides[i] − reference) / beach_slope`.
+/// La corrección mareal lleva cada línea de agua al datum de referencia. Con
+/// marea sobre el datum la línea de agua queda hacia tierra, así que hay que
+/// moverla **hacia el mar** `Δx`: se suma si el chainage crece hacia el mar y
+/// se resta si crece hacia tierra. Elegir mal duplica la excursión mareal en
+/// vez de quitarla, sin ningún síntoma en la salida.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChainageDirection {
+    /// El chainage crece hacia el mar: transecto de tierra a mar. Es la
+    /// convención de los transectos de strandline (`transects`, `baseline`)
+    /// y de CoastSat (origen en tierra, `example.py`: `+ correction`).
+    Seaward,
+    /// El chainage crece hacia tierra: transecto de mar a tierra.
+    Landward,
+}
+
+impl ChainageDirection {
+    /// Aplica un desplazamiento `shift` (de [`TideCorrection::horizontal_shift`])
+    /// a una distancia cross-shore cruda.
+    #[inline]
+    pub fn apply(self, raw: f64, shift: f64) -> f64 {
+        match self {
+            ChainageDirection::Seaward => raw + shift,
+            ChainageDirection::Landward => raw - shift,
+        }
+    }
+}
+
+/// Corrige una serie de distancias cross-shore `chainage` a un datum común
+/// dadas las elevaciones de marea `tides` (una por observación), la
+/// [`TideCorrection`] y el sentido del chainage.
+///
+/// Con `Δx = (tides[i] − reference) / beach_slope`:
+/// `corrected[i] = chainage[i] + Δx` si `direction` es
+/// [`ChainageDirection::Seaward`], `chainage[i] − Δx` si es
+/// [`ChainageDirection::Landward`].
 ///
 /// Los `NaN` en `chainage` (observaciones faltantes) se propagan tal cual.
 ///
 /// # Panics
 /// Si `chainage.len() != tides.len()`.
-pub fn correct_chainage(chainage: &[f64], tides: &[f64], params: &TideCorrection) -> Vec<f64> {
+pub fn correct_chainage(
+    chainage: &[f64],
+    tides: &[f64],
+    params: &TideCorrection,
+    direction: ChainageDirection,
+) -> Vec<f64> {
     assert_eq!(
         chainage.len(),
         tides.len(),
@@ -109,7 +148,7 @@ pub fn correct_chainage(chainage: &[f64], tides: &[f64], params: &TideCorrection
     chainage
         .iter()
         .zip(tides)
-        .map(|(&raw, &tide)| raw - params.horizontal_shift(tide))
+        .map(|(&raw, &tide)| direction.apply(raw, params.horizontal_shift(tide)))
         .collect()
 }
 
@@ -128,14 +167,35 @@ mod tests {
     }
 
     #[test]
-    fn correct_chainage_subtracts_shift() {
+    fn landward_chainage_subtracts_shift() {
         let p = TideCorrection::new(0.10, 0.0).unwrap();
         let chainage = vec![100.0, 100.0, f64::NAN];
         let tides = vec![0.5, -0.5, 0.2];
-        let out = correct_chainage(&chainage, &tides, &p);
+        let out = correct_chainage(&chainage, &tides, &p, ChainageDirection::Landward);
         assert!((out[0] - (100.0 - 5.0)).abs() < 1e-9);
         assert!((out[1] - (100.0 + 5.0)).abs() < 1e-9);
         assert!(out[2].is_nan());
+    }
+
+    /// Física sobre un transecto de tierra a mar (la convención nativa): playa
+    /// plana con la línea de agua del datum a 200 m del origen. Con marea η la
+    /// línea de agua cae a `200 − η/tanβ` (sube por la cara de playa, hacia
+    /// tierra). La corrección debe devolver 200 m con cualquier marea, y la
+    /// convención opuesta debe duplicar la excursión.
+    #[test]
+    fn seaward_chainage_recovers_datum_position() {
+        let slope = 0.08;
+        let p = TideCorrection::new(slope, 0.0).unwrap();
+        let tides = vec![-0.9, -0.3, 0.0, 0.4, 1.1];
+        let observed: Vec<f64> = tides.iter().map(|t| 200.0 - t / slope).collect();
+        let ok = correct_chainage(&observed, &tides, &p, ChainageDirection::Seaward);
+        for v in &ok {
+            assert!((v - 200.0).abs() < 1e-9, "corregido {v}, esperado 200");
+        }
+        let wrong = correct_chainage(&observed, &tides, &p, ChainageDirection::Landward);
+        for (w, t) in wrong.iter().zip(&tides) {
+            assert!((w - (200.0 - 2.0 * t / slope)).abs() < 1e-9);
+        }
     }
 
     #[test]

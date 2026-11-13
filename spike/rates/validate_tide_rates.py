@@ -20,6 +20,10 @@ subprocess.run(['./target/release/strandline','rates',
     '--intersections','spike/rates/intersections.csv',
     '--dates','spike/rates/dates.csv','--min-valid','10',
     '--tide-correction','spike/rates/tide_correction.csv',
+    # El pickle de referencia restó la corrección (scripts/03_tidal_correction.py
+    # de propuesta-4). Sus transectos van de tierra a mar, así que ese signo era
+    # el equivocado; 'landward' reproduce la referencia tal cual, no la física.
+    '--chainage-direction','landward',
     '-o','spike/rates/rates_tidecorr.csv'],check=True)
 rust_corr=load_rates('spike/rates/rates_tidecorr.csv')
 

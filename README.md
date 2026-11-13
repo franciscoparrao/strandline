@@ -65,7 +65,7 @@ strandline intersect --transects transects.csv --shorelines shorelines.csv \
 strandline tide --constituents constituents.csv --dates dates.csv \
   --beach-slope 0.1 --output tide.csv
 strandline rates --intersections cross.csv --dates dates.csv \
-  --tide-correction tidecorr.csv --qc -o rates.csv
+  --tide-correction tidecorr.csv --chainage-direction seaward --qc -o rates.csv
 ```
 
 ## Subcommands

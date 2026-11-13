@@ -16,7 +16,7 @@ use strandline_core::shoreline::prepare_scene;
 use strandline_core::slope::{estimate_beach_slope, SlopeSettings};
 use strandline_core::stl::decompose as stl_decompose;
 use strandline_core::subpixel::{fit_profiles, refine_line_subpixel, ProfileSettings};
-use strandline_core::tide::{self, harmonic::TidePredictor, TideCorrection};
+use strandline_core::tide::{self, harmonic::TidePredictor, ChainageDirection, TideCorrection};
 use strandline_core::transects::{
     compute_intersections, generate_transects, smooth_polyline, transect_name,
     IntersectionSettings, Transect,
@@ -516,10 +516,19 @@ enum Command {
         #[arg(long, default_value_t = 30)]
         despike_min_valid: usize,
         /// CSV opcional de corrección mareal por shoreline
-        /// (columnas: shoreline_id, correction_m); se resta del chainage
-        /// antes del despiking y las tasas (Vos et al. 2019).
+        /// (columnas: shoreline_id, correction_m, con correction_m =
+        /// (marea − datum)/pendiente, la salida de `tide --beach-slope`); se
+        /// aplica al chainage antes del despiking y las tasas (Vos et al.
+        /// 2019). Exige `--chainage-direction`.
         #[arg(long)]
         tide_correction: Option<PathBuf>,
+        /// Sentido en que crece el chainage de los transectos: `seaward`
+        /// (de tierra a mar: los transectos de `transects`/`baseline` y de
+        /// CoastSat; la corrección se suma) o `landward` (de mar a tierra; se
+        /// resta). Obligatorio con `--tide-correction`: el signo equivocado
+        /// duplica la excursión mareal en vez de quitarla, sin síntoma.
+        #[arg(long)]
+        chainage_direction: Option<String>,
         /// CSV opcional de pesos WLR por satélite (columnas: satname,
         /// weight) — típicamente la salida de `satellite-weights`. Si se
         /// da, `dates` debe tener una columna `satname` además de `date`;
@@ -643,6 +652,16 @@ fn warn_classifier_on_sr(path: &std::path::Path, use_classifier: bool, coastsat_
 }
 
 /// Parsea el tipo de máscara desde el flag CLI.
+fn parse_chainage_direction(s: &str) -> anyhow::Result<ChainageDirection> {
+    match s {
+        "seaward" => Ok(ChainageDirection::Seaward),
+        "landward" => Ok(ChainageDirection::Landward),
+        other => anyhow::bail!(
+            "--chainage-direction debe ser 'seaward' o 'landward', se recibió '{other}'"
+        ),
+    }
+}
+
 fn parse_mask_kind(s: &str) -> anyhow::Result<MaskKind> {
     match s {
         "qa" => Ok(MaskKind::QaPixel),
@@ -1873,6 +1892,7 @@ fn main() -> anyhow::Result<()> {
             despike_max_change,
             despike_min_valid,
             tide_correction,
+            chainage_direction,
             satellite_weights,
             qc,
             max_abs_lrr,
@@ -1893,6 +1913,18 @@ fn main() -> anyhow::Result<()> {
             let tide_corr = match &tide_correction {
                 Some(p) => read_tide_correction(p, cli.strict)?,
                 None => std::collections::HashMap::new(),
+            };
+            let direction = match (&tide_correction, chainage_direction.as_deref()) {
+                (Some(_), Some(d)) => parse_chainage_direction(d)?,
+                (Some(_), None) => anyhow::bail!(
+                    "--tide-correction exige --chainage-direction seaward|landward \
+                     (seaward = transectos de tierra a mar, los de strandline y CoastSat)"
+                ),
+                (None, Some(_)) => {
+                    anyhow::bail!("--chainage-direction solo tiene sentido con --tide-correction")
+                }
+                // sin corrección mareal el sentido no se usa
+                (None, None) => ChainageDirection::Seaward,
             };
             // pesos reales por satélite (hallazgo E1): reemplazan la
             // columna `weight` de `dates` cuando el satélite de la
@@ -1937,13 +1969,14 @@ fn main() -> anyhow::Result<()> {
                     .and_then(|(_, sat)| sat_weight_table.get(sat))
                     .copied()
                     .unwrap_or(weight);
-                // corrección mareal: corrected = raw − correction (Vos et al.).
+                // corrección mareal (Vos et al.): raw ± correction según el
+                // sentido del chainage; ver `ChainageDirection`.
                 // Una observación sin entrada en la tabla entraría SIN corregir
                 // a la misma serie que las corregidas: en un sitio macro-tidal
                 // eso son metros de sesgo indistinguibles del cambio real.
                 let corrected = if tide_correction.is_some() {
                     match tide_corr.get(f[1]) {
-                        Some(c) => chainage - c,
+                        Some(c) => direction.apply(chainage, *c),
                         None => {
                             uncorrected += 1;
                             continue;

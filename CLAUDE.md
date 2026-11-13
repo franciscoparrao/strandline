@@ -1601,3 +1601,21 @@ benchmark (software + accuracy vs CoastSat + velocidad).
   - Pendiente: subcomandos de sensores y ángulo; validación contra terreno (Vos 2023) y
     error de OSM; baselines; reescritura; autoría (coautores del paper 1) y Zenodo (dos
     registros); push + tag + publicación (requieren OK).
+
+- **2026-11-12**: **Signo de la corrección mareal corregido** (hallado por la review
+  simulada C&G, `~/vault/journals/computers-geosciences/reviews-generated/2026-11-12_09-59_paper.md`).
+  `rates --tide-correction` restaba siempre `Δx=(η−z_ref)/tanβ`. Con chainage creciente
+  hacia el mar (transectos nativos de strandline y de CoastSat, que hace `+ correction`
+  en `example.py:312`) hay que **sumar**: restar duplica la excursión mareal sin síntoma.
+  Nuevo `tide::ChainageDirection {Seaward, Landward}`; `correct_chainage` lo exige y
+  `rates` exige `--chainage-direction` junto con `--tide-correction` (sin default, a
+  propósito). La reproducción exacta del pickle de Viña se mantiene con `landward`
+  (LRR 5e-7, NSM/SCE 5e-5), porque `scripts/03_tidal_correction.py` de propuesta-4
+  **restó sobre transectos de tierra a mar (signo equivocado)**; el reanálisis
+  (`scripts/46_tide_paper_sites.py`) ya usa el signo de CoastSat. El piloto de
+  Algarrobo corrió con el signo invertido: su −0,019 m/año pasa a ~+0,019, conclusión
+  intacta. Ec. 2 del paper actualizada. 120 tests, clippy limpio. Los scripts 03/10
+  nunca salieron de la máquina (a terceros solo fue un resumen) y el manuscrito vigente
+  de propuesta-4 (v0.7/v0.8) usa solo el script 46: no hay nada publicado que corregir.
+  El pickle viejo sí alimenta los scripts 05, 14 y 15, ya superados por la base
+  contaminada.

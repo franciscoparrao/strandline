@@ -269,11 +269,16 @@ correction applied to a cross-shore distance is
 \begin{equation}
   \Delta x = \frac{\eta - z_\mathrm{ref}}{\tan\beta},
   \qquad
-  x_\mathrm{corr} = x_\mathrm{raw} - \Delta x .
+  x_\mathrm{corr} = x_\mathrm{raw} + \Delta x ,
   \label{eq:tide}
 \end{equation}
-Applied to the reference cross-shore distances this reproduces the paper's
-tide-corrected series exactly.
+with the cross-shore distance increasing seaward, as on the engine's own transects
+and on CoastSat's. A water level above the datum moves the waterline landward, so
+the correction moves it back seaward. On transects whose distance increases
+landward the sign reverses. Because the wrong sign doubles the tidal excursion
+instead of removing it, without any visible symptom, the engine does not assume a
+convention: the rate stage requires it to be declared. Declaring the opposite
+convention, the engine reproduces the reference tide-corrected series exactly.
 
 The distinctive element is that water levels are synthesised natively, removing
 the dependency on \texttt{pyfes}/\texttt{pyTMD} that motivated much of this work.
