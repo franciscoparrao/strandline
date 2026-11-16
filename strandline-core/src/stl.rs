@@ -67,7 +67,7 @@ const MJD_EPOCH_1970: f64 = 40587.0;
 /// Fecha civil `(año, mes, día)` desde días transcurridos since 1970-01-01
 /// (algoritmo de Howard Hinnant, exacto para el calendario gregoriano
 /// proléptico).
-fn civil_from_days(z: i64) -> (i32, u32, u32) {
+pub(crate) fn civil_from_days(z: i64) -> (i32, u32, u32) {
     let z = z + 719_468;
     let era = if z >= 0 { z } else { z - 146_096 }.div_euclid(146_097);
     let doe = z - era * 146_097; // [0, 146096]

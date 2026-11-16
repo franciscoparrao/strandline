@@ -1,0 +1,8 @@
+60 playas; máxima diferencia por transecto contra pandas: 5.00e-05 m
+par    modo        n   mediana      q25      q75   referencia (new_diagnostics.json)
+L7-L5  compat   2258     4.419    0.438   12.158   n=2258 4.419 0.438 12.158
+L7-L5  level0   2260     3.114    0.266    7.690   n=2260 3.114 0.266 7.690
+L8-L7  compat   2252    22.758    8.680   35.605   n=2252 22.758 8.680 35.605
+L8-L7  level0   2255     4.618    0.867   11.595   n=2255 4.618 0.867 11.595
+L9-L8  compat   2233     0.919   -4.228    5.075   n=2233 0.919 -4.228 5.075
+L9-L8  level0   2229     0.101   -3.733    3.289   n=2229 0.101 -3.733 3.289

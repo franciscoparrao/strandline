@@ -1,0 +1,36 @@
+conjunto original
+Viña del Mar   transectos   17 (spike   17, mismos=True)  max|Δθ_pers|=0.0e+00  max|ΔMAD|=0.0e+00  max|Δn|=0  nula 248 vs 248 max|Δ|=0.0e+00
+    17 transectos con >= 10 fechas (de 250); 300 fechas
+      ángulo persistente: mediana 44.79°, inflación mediana 40.91% (si la costa se mueve perpendicular a su orientación local)
+      coherencia espacial (vecinos) r = 0.029; estabilidad temporal (mitades) r = 0.887
+      nula: mediana 0.89° sobre 248 transectos; exceso 43.91°  <-- MARCADO
+Coquimbo       transectos  249 (spike  334, mismos=False)  max|Δθ_pers|=5.6e+01  max|ΔMAD|=2.3e+01  max|Δn|=95  nula 332 vs 332 max|Δ|=0.0e+00
+    249 transectos con >= 10 fechas (de 334); 300 fechas
+      ángulo persistente: mediana 45.05°, inflación mediana 41.55% (si la costa se mueve perpendicular a su orientación local)
+      coherencia espacial (vecinos) r = 0.586; estabilidad temporal (mitades) r = 0.776
+      nula: mediana 1.20° sobre 332 transectos; exceso 43.85°  <-- MARCADO
+Constitución   transectos   23 (spike   23, mismos=True)  max|Δθ_pers|=0.0e+00  max|ΔMAD|=0.0e+00  max|Δn|=0  nula 175 vs 175 max|Δ|=0.0e+00
+    23 transectos con >= 10 fechas (de 176); 300 fechas
+      ángulo persistente: mediana 38.74°, inflación mediana 28.21% (si la costa se mueve perpendicular a su orientación local)
+      coherencia espacial (vecinos) r = 0.478; estabilidad temporal (mitades) r = 0.768
+      nula: mediana 1.98° sobre 175 transectos; exceso 36.76°  <-- MARCADO
+Traceback (most recent call last):
+  File "/home/franciscoparrao/proyectos/strandline/spike/transect_angle/validate_cli.py", line 69, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/home/franciscoparrao/proyectos/strandline/spike/transect_angle/validate_cli.py", line 28, in main
+    an, out = datasets.load(site)
+              ^^^^^^^^^^^^^^^^^^^
+  File "/home/franciscoparrao/proyectos/strandline/spike/transect_angle/datasets.py", line 56, in load
+    out = pickle.load(open(_OUTPUT[site], 'rb'))
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/mnt/kingston/VALDIVIA/VALDIVIA_output.pkl'
+
+Nota (2026-11-14): el conjunto original ya no se regenera completo.
+- Coquimbo: /mnt/kingston/COQUIMBO/COQUIMBO_output.pkl se modificó el
+  2026-08-31, después de que se escribió theta_persist.csv (agosto), así que el
+  subcomando mide otras shorelines; la diferencia es de datos, no del
+  estimador (Viña y Constitución reproducen exacto).
+- Valdivia: /mnt/kingston/VALDIVIA/VALDIVIA_output.pkl ya no está en el disco.
+El chequeo marca los tres sitios que sí se pueden correr (exceso de 37-44°
+sobre la nula), y ningún sitio del conjunto oceánico salvo Constitución.

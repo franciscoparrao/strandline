@@ -156,20 +156,19 @@ Sect.~\ref{sec:discussion} their scope and limits.
 %============================================================
 strandline is a Rust workspace of two crates. The library,
 \texttt{strandline-core}, holds all numerical logic. The command-line binary,
-\texttt{strandline-cli}, exposes it as twelve subcommands (Fig.~\ref{fig:pipeline}):
+\texttt{strandline-cli}, exposes it as fourteen subcommands (Fig.~\ref{fig:pipeline}):
 \texttt{fetch} reads scenes from a public STAC catalogue; \texttt{extract},
 \texttt{profile} and \texttt{baseline} extract shorelines; \texttt{transects}
 and \texttt{intersect} build and apply the measurement geometry; \texttt{tide}
-and \texttt{rates} correct and summarise the series; \texttt{refcheck} checks
-the measurement geometry; and \texttt{slope}, \texttt{stl} and
+and \texttt{rates} correct and summarise the series; \texttt{refcheck},
+\texttt{sensor-offset} and \texttt{angle} are the checks of
+Sect.~\ref{sec:checks}; and \texttt{slope}, \texttt{stl} and
 \texttt{satellite-weights} are analysis tools not discussed here. Pixel
 classification and quality control are options of the stages they belong to
 (\texttt{extract -{}-classify}, \texttt{rates -{}-qc}). Raster input and output
 come from \texttt{surtgis-core}, a sibling engine \citep{surtgis}. Everything
 else, including projections and tidal synthesis, is implemented in the crate,
 so the binary links no GDAL, PROJ, Python or other C library.
-\todo{the paired-sensor and angle checks are scripts today; add them as
-subcommands and update this paragraph and Fig.~\ref{fig:pipeline}.}
 
 \begin{figure}[t]
   \centering
@@ -177,8 +176,8 @@ subcommands and update this paragraph and Fig.~\ref{fig:pipeline}.}
   \caption{The strandline pipeline in three phases: shoreline extraction (blue),
   transect geometry (green) and change analysis (orange). Monospace labels are
   CLI subcommands or options. \todo{regenerate: classification and QC are
-  options, not subcommands; add \texttt{refcheck}, \texttt{-{}-reference} and
-  the two remaining checks.}}
+  options, not subcommands; add \texttt{refcheck}, \texttt{-{}-reference},
+  \texttt{sensor-offset} and \texttt{angle}.}}
   \label{fig:pipeline}
 \end{figure}
 
@@ -278,7 +277,7 @@ The engine is written in safe Rust and parallelised with \texttt{rayon}.
 Disabling the parallel feature gives a single-threaded build, and where both
 exist their outputs are bit-for-bit identical. UTM and geographic coordinates
 are converted with Karney's series \citep{karney2011tm}, agreeing with pyproj
-to below 1~mm. The test suite has 120 tests, including end-to-end
+to below 1~mm. The test suite has 129 tests, including end-to-end
 GeoTIFF-to-shoreline tests on a real scene and golden vectors from the original
 classifier, and passes in both builds. One integration test, which compares
 paired Landsat~7 and Landsat~8 scenes, needs an external fixture and reports
@@ -313,7 +312,7 @@ is a supporting criterion, not a standalone one.
 (against SHOA charts or a digitised high-resolution line).}
 
 \subsection{Paired sensors}\label{subsec:sensorcheck}
-The paired-sensor check compares, for each transect, the median shoreline
+The paired-sensor check (\texttt{sensor-offset}) compares, for each transect, the median shoreline
 position of two sensors over the years in which both operated: Landsat~7
 against Landsat~5 in 2003--2011, Landsat~8 against Landsat~7 in 2013--2021, and
 Landsat~9 against Landsat~8 in 2022--2025. Restricting to the overlap removes
@@ -321,7 +320,10 @@ real shoreline change from the comparison, and the median over years removes
 most of the tidal and seasonal scatter. A consistent extraction gives offsets
 near zero. A sensor-dependent bias gives a step at each change of sensor,
 which a linear rate absorbs as trend whenever the sensor mix changes through
-the record. Landsat~7 and Landsat~8 reflectances are close but not identical
+the record. Offsets are reported seaward-positive, so the check requires the
+chainage convention (Sect.~\ref{subsec:tide}), and a pair is flagged when its
+median offset exceeds a set value (10~m by default, a third of a Landsat
+pixel). The pairs and their years are parameters. Landsat~7 and Landsat~8 reflectances are close but not identical
 \citep{roy2016continuity}, so a threshold rule that depends on more than one
 index can respond to them differently.
 
@@ -333,7 +335,7 @@ so a persistent angle inflates a rate when the shoreline moves perpendicular to
 its local orientation. Alongshore migration, rotation or curvature break that
 assumption, and there an oblique transect can also reduce or reverse a rate.
 
-The angle check estimates $\theta$ at each crossing from the local tangent of
+The angle check (\texttt{angle}) estimates $\theta$ at each crossing from the local tangent of
 the instantaneous contour within a window around the transect. Because the
 contour is stepped at pixel scale and $\theta=\arcsin|\hat u\cdot\hat t|$ is
 rectified, estimator noise inflates the angle even when the true value is zero.
@@ -341,7 +343,11 @@ The check therefore builds a null: the same estimator applied to the reference
 line from which the transects were cast, where the true angle is zero,
 resampled to the vertex density of the contours and quantised onto the pixel
 grid. Only a persistent angle biases a rate, so the check summarises each
-transect with at least 10 dates by its median angle across dates.
+transect with at least 10 dates by its median angle across dates, and flags the
+site when that median exceeds the median of the null by more than a set value
+(10$^\circ$ by default). It also reports the correlation of the persistent
+angle between adjacent transects and between two halves of the record, but
+these do not validate the geometry (Sect.~\ref{subsec:res_angle}).
 \todo{null with realistic sub-pixel noise and per-transect across-date median;
 report the excess over the null; spatial block bootstrap instead of
 Mann--Whitney.}
@@ -463,8 +469,10 @@ full site.}
 six sites and compared with a diagnosis made independently, by hand-written
 scripts, for the earlier study. The reference-buffered extraction is compared
 with CoastSat run with the same reference and band on six scenes at Vi\~na del
-Mar. The paired-sensor check is run on the 60-beach dataset, and the angle
-check on the original and ocean-anchored transects of five sites.
+Mar. The paired-sensor check is run on the 60-beach dataset and compared with the
+independent implementation used for the earlier study; the angle check is run
+on the original and ocean-anchored transects of five sites and compared with
+the exploratory implementation from which it was ported.
 
 %============================================================
 \section{Results}\label{sec:results}
@@ -584,7 +592,10 @@ shoreline lies a median 22.8~m seaward of the Landsat~7 one over 2013--2021
 medians range from 10 to 35~m (10th--90th percentiles) across the 60 beaches.
 With the default MNDWI threshold on the same scenes the offset falls to 4.6~m
 (0.9--11.6~m). The Landsat~7--Landsat~5 and Landsat~9--Landsat~8 offsets are
-small in both modes (3--4~m and 0--1~m).
+small in both modes (3--4~m and 0--1~m). \texttt{sensor-offset} reproduces the
+independent implementation exactly: the same transects in every pair and mode,
+the same median and quartiles, and per-transect offsets equal to the rounding
+of the input files.
 \todo{figure with the per-beach offsets in both modes.}
 
 The cause is the threshold rule, not the scenes: on identical scenes and
@@ -603,7 +614,9 @@ surface-reflectance scenes.
 On the ocean-anchored transects the misalignment is small. The persistent angle
 has a median of 5.7$^\circ$ over 857 transects at five sites, against a null
 whose site medians are 1.3--4.1$^\circ$ (Fig.~\ref{fig:angle},
-Table~\ref{tab:angle}). If shoreline motion is perpendicular to the local
+Table~\ref{tab:angle}). \texttt{angle} reproduces the exploratory
+implementation exactly at all five sites, transect by transect and for the
+null; of the five, it flags only Constituci\'on. If shoreline motion is perpendicular to the local
 orientation, that corresponds to a rate inflation of 0.5\%. The exception is
 Constituci\'on, where the transects cross the mouth and spit of the Maule
 River: 22.1$^\circ$, or at most 8\%, an upper bound because a migrating river
@@ -653,7 +666,11 @@ On the original transects the same measurement gives a persistent median of
 39.9$^\circ$ over 538 transects at four sites, which would imply a rate
 inflation of 30\%. That angle is as coherent as the real one: adjacent
 transects correlate at $r=0.54$--$0.63$, and the two halves of the record at
-$r=0.76$--$0.93$. Only 130 of the 538 transects (24\%) had their anchor within
+$r=0.76$--$0.93$. Run on these transects, \texttt{angle} flags every site it can still be run on
+(an excess of 37--44$^\circ$ over the null).\todo{the archived per-date
+shorelines of the original study no longer reproduce Coquimbo and Valdivia:
+regenerate the 538-transect figures from the archive or restate them.}
+Only 130 of the 538 transects (24\%) had their anchor within
 200~m of the ocean coastline. The others followed the bank of an estuary or a
 river and measured a real, persistent angle to the wrong shoreline. Coherence
 in space and stability in time separate geometry from estimator noise, but not

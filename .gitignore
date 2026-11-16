@@ -45,3 +45,7 @@ strandline-core/tests/fixtures/sensor_pairs/
 /spike/satellite_weights/work/
 /spike/refcheck/work/
 /docs/escalera/build/
+
+# Exportes CSV de validate_cli.py (pesados y regenerables desde los pickles)
+/spike/transect_angle/cli/
+/spike/transect_angle/ocean/cli/

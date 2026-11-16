@@ -1619,3 +1619,23 @@ benchmark (software + accuracy vs CoastSat + velocidad).
   de propuesta-4 (v0.7/v0.8) usa solo el script 46: no hay nada publicado que corregir.
   El pickle viejo sí alimenta los scripts 05, 14 y 15, ya superados por la base
   contaminada.
+
+- **2026-11-14**: **Subcomandos `sensor-offset` y `angle`** (los dos chequeos que faltaban
+  del plan de fusión). Módulos `sensor_offset` y `angle` en el core, 9 tests nuevos (129
+  en total), clippy limpio, MSRV 1.75 (sin `round_ties_even`).
+  - `sensor-offset`: mediana por transecto y sensor en el traslape (L7−L5 2003–2011,
+    L8−L7 2013–2021, L9−L8 2022–2025, configurable con `--pair`), hacia el mar positivo
+    (exige `--chainage-direction`), año calendario exacto desde el MJD. Reproduce
+    **exacto** el test de las 60 playas de propuesta-4 (script 58): mismos n, medianas y
+    cuartiles en los 3 pares × 2 modos (L8−L7: 22,758 compat / 4,618 nivel 0).
+    `spike/sensor_offset/validate_60.py`. Ojo: el script 58 excluye solo
+    `ALGARROBO_OTSU`/`ALGARROBO_L0`; las 60 playas incluyen una de Algarrobo.
+  - `angle`: port fiel de `spike/transect_angle/export_for_figure.py` (cruce, tangente
+    PCA en ±100 m de arco, nula remuestreada a 15 m y cuantizada) + r espacial/temporal y
+    marca por exceso sobre la nula (10°). Reproduce **exacto** el conjunto oceánico en los 5
+    sitios (θ, MAD, n, nula y las r de la Tabla 4); marca solo Constitución. En el
+    original marca Viña, Coquimbo y Constitución (exceso 37–44°). Igual que el spike,
+    cuenta como cruce el segmento que une dos tramos de una línea.
+  - **GOTCHA de datos**: el conjunto original ya no se regenera: Coquimbo cambió en
+    `/mnt/kingston` (2026-08-31) y `VALDIVIA_output.pkl` ya no está. Las cifras de 538
+    transectos/39,9° del paper quedan con `\todo`.

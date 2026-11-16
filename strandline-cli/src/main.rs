@@ -614,6 +614,100 @@ enum Command {
         #[arg(short, long)]
         output: PathBuf,
     },
+    /// Chequeo de sensores pareados: desfase de la línea de costa entre dos
+    /// sensores en los años en que ambos observaron las mismas playas.
+    ///
+    /// Por transecto y par, mediana del chainage de cada sensor dentro del
+    /// traslape y diferencia posterior − anterior, hacia el mar positivo. Un
+    /// umbral que depende del sensor aparece como un escalón en cada cambio
+    /// de sensor, que una tasa lineal absorbe como tendencia y que ningún
+    /// control por serie detecta.
+    SensorOffset {
+        /// CSV de intersecciones (transect, shoreline_id, chainage_m).
+        #[arg(long)]
+        intersections: PathBuf,
+        /// CSV con fecha y sensor por shoreline (shoreline_id, date, satname).
+        #[arg(long)]
+        dates: PathBuf,
+        /// Sentido del chainage: `seaward` (de tierra a mar, los transectos
+        /// de strandline y CoastSat) o `landward`. Fija el signo: el desfase
+        /// se reporta hacia el mar positivo.
+        #[arg(long)]
+        chainage_direction: String,
+        /// Par de sensores `anterior:posterior:año0:año1` (repetible). Por
+        /// defecto los traslapes de Landsat: L5:L7:2003:2011,
+        /// L7:L8:2013:2021 y L8:L9:2022:2025.
+        #[arg(long = "pair")]
+        pairs: Vec<String>,
+        /// Mínimo de observaciones de cada sensor en el traslape para que un
+        /// transecto entre en el par.
+        #[arg(long, default_value_t = 1)]
+        min_obs: usize,
+        /// Desfase mediano (m, en valor absoluto) sobre el cual se marca el par.
+        #[arg(long, default_value_t = 10.0)]
+        max_offset: f64,
+        /// CSV opcional con el resumen por par (pair, n, median_m, q25_m,
+        /// q75_m, flagged).
+        #[arg(long)]
+        summary: Option<PathBuf>,
+        /// CSV de salida por transecto (pair, transect, n_a, n_b,
+        /// median_a_m, median_b_m, offset_m).
+        #[arg(short, long)]
+        output: PathBuf,
+    },
+    /// Chequeo del ángulo: cuánto se apartan los transectos fijos de la
+    /// normal local de la línea de costa de cada fecha, contra una nula.
+    ///
+    /// El ángulo se estima con la tangente local del contorno en el cruce. Al
+    /// estar rectificado, el ruido del estimador lo infla aunque el ángulo
+    /// verdadero sea cero; la nula aplica el mismo estimador a la línea de
+    /// referencia desde la que se generaron los transectos. Coherencia
+    /// espacial y estabilidad temporal NO bastan para validar la geometría: un
+    /// transecto que sigue la orilla de un río mide un ángulo real y estable
+    /// respecto de la orilla equivocada (usar `refcheck`).
+    Angle {
+        /// CSV de transectos (name, origin_e, origin_n, end_e, end_n).
+        #[arg(long)]
+        transects: PathBuf,
+        /// CSV de shorelines (shoreline_id, easting, northing), una por fecha.
+        #[arg(long)]
+        shorelines: PathBuf,
+        /// CSV opcional (shoreline_id, date) para ordenar las shorelines por
+        /// fecha; sin él se usa el orden del archivo. Las mitades del
+        /// registro se definen sobre ese orden.
+        #[arg(long)]
+        dates: Option<PathBuf>,
+        /// Línea de referencia de los transectos, para la nula (GeoJSON o
+        /// CSV, en el CRS de los transectos).
+        #[arg(long)]
+        reference: Option<PathBuf>,
+        /// Media ventana de arco (m) para estimar la tangente.
+        #[arg(long, default_value_t = 100.0)]
+        half_window: f64,
+        /// Mínimo de fechas con cruce para resumir un transecto.
+        #[arg(long, default_value_t = 10)]
+        min_dates: usize,
+        /// Tamaño de píxel (m) con que se cuantiza la nula.
+        #[arg(long, default_value_t = 15.0)]
+        pixel: f64,
+        /// Espaciado de vértices (m) con que se remuestrea la nula.
+        #[arg(long, default_value_t = 15.0)]
+        vertex_spacing: f64,
+        /// Usa a lo sumo este número de fechas, equiespaciadas en el orden.
+        #[arg(long)]
+        max_dates: Option<usize>,
+        /// Exceso (grados) de la mediana persistente sobre la de la nula
+        /// sobre el cual se marca el sitio.
+        #[arg(long, default_value_t = 10.0)]
+        max_excess: f64,
+        /// CSV opcional con los ángulos de la nula (transect, theta_deg).
+        #[arg(long)]
+        null_output: Option<PathBuf>,
+        /// CSV de salida por transecto (transect, n_dates, theta_pers_deg,
+        /// theta_mad_deg, theta_h1_deg, theta_h2_deg, inflation).
+        #[arg(short, long)]
+        output: PathBuf,
+    },
 }
 
 /// `true` si el nombre del archivo lleva el identificador de un producto de
@@ -714,6 +808,19 @@ fn read_date_satnames(
     path: &PathBuf,
     strict: bool,
 ) -> anyhow::Result<std::collections::HashMap<String, (f64, String)>> {
+    Ok(read_date_mjd_satnames(path, strict)?
+        .into_iter()
+        .map(|(k, (mjd, sat))| (k, (decimal_year_from_mjd(mjd), sat)))
+        .collect())
+}
+
+/// Como [`read_date_satnames`], pero con la fecha como MJD: `sensor-offset`
+/// necesita el año calendario exacto, que el año decimal no garantiza en los
+/// bordes del año.
+fn read_date_mjd_satnames(
+    path: &PathBuf,
+    strict: bool,
+) -> anyhow::Result<std::collections::HashMap<String, (f64, String)>> {
     let text = std::fs::read_to_string(path)
         .with_context(|| format!("leyendo fechas/satélite {}", path.display()))?;
     let mut lines = text.lines().filter(|l| !l.trim().is_empty());
@@ -744,10 +851,7 @@ fn read_date_satnames(
             d.record("fecha no parseable", f[di]);
             continue;
         };
-        map.insert(
-            f[idi].to_string(),
-            (decimal_year_from_mjd(mjd), f[si].to_string()),
-        );
+        map.insert(f[idi].to_string(), (mjd, f[si].to_string()));
     }
     d.finish(strict)?;
     Ok(map)
@@ -2212,6 +2316,281 @@ fn main() -> anyhow::Result<()> {
                     "  {}: n={} std={:.2}m peso={:.4}",
                     w.satname, w.n_obs, w.std_m, w.weight
                 );
+            }
+        }
+        Command::SensorOffset {
+            intersections,
+            dates,
+            chainage_direction,
+            pairs,
+            min_obs,
+            max_offset,
+            summary,
+            output,
+        } => {
+            use strandline_core::sensor_offset::{
+                calendar_year_from_mjd, landsat_pairs, paired_offsets, Observation, SensorPair,
+            };
+            let direction = parse_chainage_direction(&chainage_direction)?;
+            let pairs = if pairs.is_empty() {
+                landsat_pairs()
+            } else {
+                pairs
+                    .iter()
+                    .map(|p| {
+                        let f: Vec<&str> = p.split(':').collect();
+                        anyhow::ensure!(
+                            f.len() == 4,
+                            "--pair debe ser anterior:posterior:año0:año1, se recibió '{p}'"
+                        );
+                        let (y0, y1): (i32, i32) = (f[2].parse()?, f[3].parse()?);
+                        anyhow::ensure!(y0 <= y1, "--pair '{p}': año0 > año1");
+                        Ok(SensorPair {
+                            a: f[0].into(),
+                            b: f[1].into(),
+                            y0,
+                            y1,
+                        })
+                    })
+                    .collect::<anyhow::Result<Vec<_>>>()?
+            };
+            let date_sat = read_date_mjd_satnames(&dates, cli.strict)?;
+            let text = std::fs::read_to_string(&intersections)
+                .with_context(|| format!("leyendo intersecciones {}", intersections.display()))?;
+            let mut lines = text.lines().filter(|l| !l.trim().is_empty());
+            let header = csv_header(lines.next().unwrap_or_default());
+            let ti = header.iter().position(|c| c == "transect").context("falta 'transect'")?;
+            let si = header
+                .iter()
+                .position(|c| c == "shoreline_id")
+                .context("falta 'shoreline_id'")?;
+            let ci = header
+                .iter()
+                .position(|c| c == "chainage_m")
+                .context("falta 'chainage_m'")?;
+            let mut by_transect: std::collections::HashMap<String, Vec<Observation>> =
+                std::collections::HashMap::new();
+            let mut d = CsvDiscards::new(intersections.display().to_string());
+            for l in lines {
+                d.row();
+                let f: Vec<&str> = l.split(',').map(str::trim).collect();
+                if f.len() <= ti.max(si).max(ci) {
+                    d.record("campos faltantes", l);
+                    continue;
+                }
+                let Some((mjd, sat)) = date_sat.get(f[si]) else {
+                    d.record("shoreline_id sin fecha/sensor en --dates", f[si]);
+                    continue;
+                };
+                let Ok(chainage) = f[ci].parse::<f64>() else {
+                    d.record("chainage no numérico", f[ci]);
+                    continue;
+                };
+                if !chainage.is_finite() {
+                    d.record("chainage no finito (QC)", f[ci]);
+                    continue;
+                }
+                by_transect.entry(f[ti].to_string()).or_default().push(Observation {
+                    year: calendar_year_from_mjd(*mjd),
+                    chainage,
+                    sensor: sat.clone(),
+                });
+            }
+            d.finish(cli.strict)?;
+
+            let res = paired_offsets(&by_transect, &pairs, min_obs, direction);
+            let mut out = String::from("pair,transect,n_a,n_b,median_a_m,median_b_m,offset_m\n");
+            let mut sum = String::from("pair,n,median_m,q25_m,q75_m,flagged\n");
+            eprintln!("desfase entre sensores pareados (hacia el mar positivo):");
+            for p in &res {
+                let label = p.pair.label();
+                for t in &p.transects {
+                    out.push_str(&format!(
+                        "{label},{},{},{},{:.4},{:.4},{:.4}\n",
+                        t.transect, t.n_a, t.n_b, t.median_a, t.median_b, t.offset
+                    ));
+                }
+                match p.summary {
+                    Some(s) => {
+                        let flagged = s.median.abs() > max_offset;
+                        sum.push_str(&format!(
+                            "{label},{},{:.4},{:.4},{:.4},{flagged}\n",
+                            s.n, s.median, s.q25, s.q75
+                        ));
+                        eprintln!(
+                            "  {label} ({}-{}): mediana {:+.2} m (IQR {:+.2} a {:+.2}), {} transectos{}",
+                            p.pair.y0,
+                            p.pair.y1,
+                            s.median,
+                            s.q25,
+                            s.q75,
+                            s.n,
+                            if flagged { "  <-- MARCADO" } else { "" }
+                        );
+                    }
+                    None => {
+                        sum.push_str(&format!("{label},0,,,,false\n"));
+                        eprintln!(
+                            "  {label} ({}-{}): sin transectos con ambos sensores",
+                            p.pair.y0, p.pair.y1
+                        );
+                    }
+                }
+            }
+            std::fs::write(&output, out)
+                .with_context(|| format!("escribiendo {}", output.display()))?;
+            if let Some(path) = summary {
+                std::fs::write(&path, sum)
+                    .with_context(|| format!("escribiendo {}", path.display()))?;
+            }
+        }
+        Command::Angle {
+            transects,
+            shorelines,
+            dates,
+            reference,
+            half_window,
+            min_dates,
+            pixel,
+            vertex_spacing,
+            max_dates,
+            max_excess,
+            null_output,
+            output,
+        } => {
+            use strandline_core::angle;
+            anyhow::ensure!(
+                half_window > 0.0 && pixel > 0.0 && vertex_spacing > 0.0,
+                "--half-window, --pixel y --vertex-spacing deben ser > 0"
+            );
+            let (tr, names) = read_transects_csv(&transects, cli.strict)?;
+            let trs: Vec<(String, Vec<(f64, f64)>)> = names
+                .into_iter()
+                .zip(tr)
+                .map(|(n, t)| (n, vec![t.origin, t.end]))
+                .collect();
+            let (ids, mut lines) = read_shorelines_csv(&shorelines, cli.strict)?;
+            if let Some(dp) = &dates {
+                let dw = read_date_weights(dp, cli.strict)?;
+                let mut order: Vec<(f64, usize)> = Vec::new();
+                let mut missing = 0usize;
+                for (i, id) in ids.iter().enumerate() {
+                    match dw.get(id) {
+                        Some((t, _)) => order.push((*t, i)),
+                        None => missing += 1,
+                    }
+                }
+                anyhow::ensure!(
+                    missing == 0 || !cli.strict,
+                    "{missing} shoreline(s) sin fecha en {}",
+                    dp.display()
+                );
+                if missing > 0 {
+                    eprintln!("aviso: {missing} shoreline(s) sin fecha en {}, descartadas", dp.display());
+                }
+                order.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+                let mut taken: Vec<Option<Vec<(f64, f64)>>> = lines.into_iter().map(Some).collect();
+                lines = order.iter().map(|&(_, i)| taken[i].take().unwrap()).collect();
+            }
+            // como el spike: solo líneas con más de 10 vértices
+            lines.retain(|l| l.len() > 10);
+            if let Some(m) = max_dates {
+                if m > 0 && lines.len() > m {
+                    // np.linspace(0, n-1, m).astype(int)
+                    let n = lines.len();
+                    let idx: Vec<usize> = (0..m)
+                        .map(|k| {
+                            if m == 1 {
+                                0
+                            } else {
+                                (k as f64 * (n - 1) as f64 / (m - 1) as f64) as usize
+                            }
+                        })
+                        .collect();
+                    lines = idx.iter().map(|&i| lines[i].clone()).collect();
+                }
+            }
+            anyhow::ensure!(!lines.is_empty(), "ninguna shoreline con más de 10 vértices");
+
+            let per = angle::measure(&trs, &lines, half_window);
+            let summ = angle::summarize(&per, min_dates);
+            let mut out = String::from(
+                "transect,n_dates,theta_pers_deg,theta_mad_deg,theta_h1_deg,theta_h2_deg,inflation\n",
+            );
+            for t in &summ {
+                out.push_str(&format!(
+                    "{},{},{:.4},{:.4},{:.4},{:.4},{:.6}\n",
+                    t.transect,
+                    t.n_dates,
+                    t.theta_pers,
+                    t.theta_mad,
+                    t.theta_h1,
+                    t.theta_h2,
+                    t.inflation()
+                ));
+            }
+            std::fs::write(&output, out)
+                .with_context(|| format!("escribiendo {}", output.display()))?;
+
+            let med = |v: &mut Vec<f64>| {
+                if v.is_empty() {
+                    f64::NAN
+                } else {
+                    v.sort_by(|a, b| a.total_cmp(b));
+                    let n = v.len();
+                    if n % 2 == 1 { v[n / 2] } else { (v[n / 2 - 1] + v[n / 2]) / 2.0 }
+                }
+            };
+            let mut pers: Vec<f64> = summ.iter().map(|t| t.theta_pers).collect();
+            let mut infl: Vec<f64> = summ.iter().map(|t| t.inflation()).collect();
+            let theta_med = med(&mut pers);
+            eprintln!(
+                "{} transectos con >= {min_dates} fechas (de {}); {} fechas",
+                summ.len(),
+                trs.len(),
+                lines.len()
+            );
+            eprintln!(
+                "  ángulo persistente: mediana {theta_med:.2}°, inflación mediana {:.2}% (si la costa se mueve perpendicular a su orientación local)",
+                100.0 * med(&mut infl)
+            );
+            eprintln!(
+                "  coherencia espacial (vecinos) r = {:.3}; estabilidad temporal (mitades) r = {:.3}",
+                angle::spatial_correlation(&summ, 1),
+                angle::temporal_correlation(&summ)
+            );
+            match &reference {
+                Some(rp) => {
+                    let r = read_reference(rp, None)?;
+                    let mut null_rows = String::from("transect,theta_deg\n");
+                    let mut null_vals = Vec::new();
+                    for line in &r.lines {
+                        let nl = angle::null_line(line, vertex_spacing, pixel);
+                        let pn = angle::measure(&trs, &[nl], half_window);
+                        let mut keys: Vec<&String> = pn.keys().collect();
+                        keys.sort_by_key(|k| (angle::transect_number(k), (*k).clone()));
+                        for k in keys {
+                            for (_, v) in &pn[k] {
+                                null_rows.push_str(&format!("{k},{v:.4}\n"));
+                                null_vals.push(*v);
+                            }
+                        }
+                    }
+                    let null_med = med(&mut null_vals);
+                    let excess = theta_med - null_med;
+                    eprintln!(
+                        "  nula: mediana {null_med:.2}° sobre {} transectos; exceso {excess:.2}°{}",
+                        null_vals.len(),
+                        if excess > max_excess { "  <-- MARCADO" } else { "" }
+                    );
+                    if let Some(np) = null_output {
+                        std::fs::write(&np, null_rows)
+                            .with_context(|| format!("escribiendo {}", np.display()))?;
+                    }
+                }
+                None => eprintln!(
+                    "  sin --reference no hay nula: el ángulo medido incluye el ruido rectificado del estimador"
+                ),
             }
         }
     }

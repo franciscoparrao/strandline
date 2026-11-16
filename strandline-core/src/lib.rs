@@ -10,6 +10,7 @@
 //! directamente a los índices fraccionales `(col, row)` del contorno,
 //! sin offset de medio píxel.
 
+pub mod angle;
 pub mod baseline;
 pub mod classify;
 pub mod cloud;
@@ -25,6 +26,7 @@ pub mod rates;
 pub mod refcheck;
 pub mod reference;
 pub mod satellite_weights;
+pub mod sensor_offset;
 pub mod shoreline;
 pub mod slope;
 pub mod stl;

@@ -1,0 +1,27 @@
+conjunto ocean
+Viña del Mar   transectos   83 (spike   83, mismos=True)  max|Δθ_pers|=0.0e+00  max|ΔMAD|=0.0e+00  max|Δn|=0  nula 93 vs 93 max|Δ|=0.0e+00
+    83 transectos con >= 10 fechas (de 95); 300 fechas
+      ángulo persistente: mediana 3.66°, inflación mediana 0.20% (si la costa se mueve perpendicular a su orientación local)
+      coherencia espacial (vecinos) r = 0.623; estabilidad temporal (mitades) r = 0.859
+      nula: mediana 1.34° sobre 93 transectos; exceso 2.31°
+Coquimbo       transectos  298 (spike  298, mismos=True)  max|Δθ_pers|=0.0e+00  max|ΔMAD|=0.0e+00  max|Δn|=0  nula 310 vs 310 max|Δ|=0.0e+00
+    298 transectos con >= 10 fechas (de 311); 300 fechas
+      ángulo persistente: mediana 4.57°, inflación mediana 0.32% (si la costa se mueve perpendicular a su orientación local)
+      coherencia espacial (vecinos) r = 0.433; estabilidad temporal (mitades) r = 0.955
+      nula: mediana 2.18° sobre 310 transectos; exceso 2.39°
+Constitución   transectos  109 (spike  109, mismos=True)  max|Δθ_pers|=0.0e+00  max|ΔMAD|=0.0e+00  max|Δn|=0  nula 116 vs 116 max|Δ|=0.0e+00
+    109 transectos con >= 10 fechas (de 118); 300 fechas
+      ángulo persistente: mediana 22.13°, inflación mediana 7.95% (si la costa se mueve perpendicular a su orientación local)
+      coherencia espacial (vecinos) r = 0.735; estabilidad temporal (mitades) r = 0.770
+      nula: mediana 1.38° sobre 116 transectos; exceso 20.74°  <-- MARCADO
+Valdivia       transectos  192 (spike  192, mismos=True)  max|Δθ_pers|=0.0e+00  max|ΔMAD|=0.0e+00  max|Δn|=0  nula 209 vs 209 max|Δ|=0.0e+00
+    192 transectos con >= 10 fechas (de 210); 300 fechas
+      ángulo persistente: mediana 5.67°, inflación mediana 0.49% (si la costa se mueve perpendicular a su orientación local)
+      coherencia espacial (vecinos) r = 0.356; estabilidad temporal (mitades) r = 0.982
+      nula: mediana 4.05° sobre 209 transectos; exceso 1.62°
+Chiloé         transectos  175 (spike  175, mismos=True)  max|Δθ_pers|=0.0e+00  max|ΔMAD|=0.0e+00  max|Δn|=0  nula 199 vs 199 max|Δ|=0.0e+00
+    175 transectos con >= 10 fechas (de 200); 300 fechas
+      ángulo persistente: mediana 5.04°, inflación mediana 0.39% (si la costa se mueve perpendicular a su orientación local)
+      coherencia espacial (vecinos) r = 0.562; estabilidad temporal (mitades) r = 0.981
+      nula: mediana 1.56° sobre 199 transectos; exceso 3.48°
+peor diferencia en θ: 0.0e+00°

@@ -84,6 +84,18 @@ strandline rates --intersections cross.csv --dates dates.csv \
 | `stl` | Seasonal-trend decomposition of per-transect series |
 | `satellite-weights` | Per-sensor precision calibrated from the data, for weighted rates |
 
+### Consistency checks
+
+Errors that repeat on every date pass per-series quality control. These checks
+compare each series with something outside it.
+
+| | |
+|---|---|
+| `refcheck` | Do the transects sample the ocean shoreline? Anchor distance to an independent coastline, anchor elevation on a DEM, distance of the measured crossings |
+| `extract --reference` | Restrict extraction and threshold to a band around a reference coastline (CoastSat's `max_dist_ref`) |
+| `sensor-offset` | Shoreline offset between sensors over the years both imaged the same beaches (L7−L5, L8−L7, L9−L8 by default) |
+| `angle` | Persistent angle between fixed transects and the local shore-normal, against a null built with the same estimator |
+
 ## Validation
 
 Every stage is checked against the artefact that defines its correct answer —
