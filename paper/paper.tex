@@ -170,14 +170,15 @@ come from \texttt{surtgis-core}, a sibling engine \citep{surtgis}. Everything
 else, including projections and tidal synthesis, is implemented in the crate,
 so the binary links no GDAL, PROJ, Python or other C library.
 
-\begin{figure}[t]
+\begin{figure}[!htbp]
   \centering
-  \includegraphics[width=\linewidth]{figures/pipeline.pdf}
-  \caption{The strandline pipeline in three phases: shoreline extraction (blue),
-  transect geometry (green) and change analysis (orange). Monospace labels are
-  CLI subcommands or options. \todo{regenerate: classification and QC are
-  options, not subcommands; add \texttt{refcheck}, \texttt{-{}-reference},
-  \texttt{sensor-offset} and \texttt{angle}.}}
+  \includegraphics[width=0.92\linewidth]{figures/pipeline.pdf}
+  \caption{The strandline pipeline. Shoreline extraction (blue), transect
+  geometry (green) and change analysis (orange) map a scene to per-transect
+  rates; the consistency checks (pink) read the transects or the intersections
+  and return per-site flags (Sect.~\ref{sec:checks}). Monospace labels are the
+  subcommand, or the subcommand and option, that runs each step; dashed boxes
+  are optional.}
   \label{fig:pipeline}
 \end{figure}
 

@@ -27,39 +27,45 @@ pal <- list(
 )
 
 BW <- 0.90; BH <- 0.66; hw <- BW/2; hh <- BH/2   # box geometry
-r1 <- 1.45; r2 <- 0.0                            # row y-centres
+r1 <- 1.45; r2 <- 0.0; r3 <- -1.45               # row y-centres
 
 # --- boxes -----------------------------------------------------------------
+# `cli` is the subcommand, or "subcommand --option" for an option.
 box <- function(id, x, y, phase, title, detail = NA, cli = NA, dashed = FALSE)
   data.frame(id, x, y, phase, title, detail = detail, cli = cli, dashed = dashed)
 
 boxes <- rbind(
-  box("in",   1, r1, "input", "GeoTIFF / COG",        "multispectral scene"),
-  box("mndwi",2, r1, "extr",  "Water index",          "MNDWI"),
-  box("cls",  3, r1, "extr",  "Pixel classification",  "sand · water · whitewater · other", "classify"),
-  box("otsu", 4, r1, "extr",  "Otsu threshold",        "class-balanced"),
-  box("cont", 5, r1, "extr",  "Sub-pixel contour",     "marching squares → shoreline"),
+  box("in",   1, r1, "input", "GeoTIFF / COG",         "multispectral scene", "fetch"),
+  box("mndwi",2, r1, "extr",  "Water index",           "MNDWI"),
+  box("cls",  3, r1, "extr",  "Pixel classification",  "optional, TOA only", "extract --classify", dashed = TRUE),
+  box("otsu", 4, r1, "extr",  "Otsu threshold",        "optional reference band", "extract --reference"),
+  box("cont", 5, r1, "extr",  "Sub-pixel contour",     "marching squares", "extract"),
   # row 2 (right -> left)
   box("tr",   5, r2, "geom",  "Shore-normal transects","smoothed baseline", "transects"),
-  box("int",  4, r2, "geom",  "Vectorised intersection","shoreline × transects", "intersect"),
-  box("rate", 2, r2, "anly",  "DSAS change rates",     "NSM · SCE · EPR · LRR · WLR", "rates"),
-  box("qc",   1, r2, "anly",  "Quality control",       "5 criteria", "qc"),
-  # optional branch + terminal
-  box("tide", 3, -1.02, "anly", "Tidal correction",    "optional", "tide", dashed = TRUE)
+  box("int",  4, r2, "geom",  "Intersection",          "shoreline × transects", "intersect"),
+  box("tide", 3, r2, "anly",  "Tidal correction",      "optional, native tides", "tide", dashed = TRUE),
+  box("rate", 2, r2, "anly",  "DSAS rates + QC",       "NSM · EPR · LRR · WLR", "rates --qc"),
+  # row 3: consistency checks
+  box("ref",  5, r3, "chk",   "Reference geometry",    "anchor vs coastline + DEM", "refcheck"),
+  box("ang",  4, r3, "chk",   "Transect angle",        "persistent angle vs null", "angle"),
+  box("sen",  3, r3, "chk",   "Paired sensors",        "L7−L5 · L8−L7 · L9−L8", "sensor-offset")
 )
-out <- data.frame(x = 1, y = -1.02)
+outs <- data.frame(x = c(1, 2), y = c(r2, r3),
+                   lab = c("Per-transect rates\n+ QC flags", "Per-site\ncheck flags"))
 
+pal$chk <- list(fill = "#F6E1EC", border = "#CC79A7", text = "#6B2450")
 col <- function(p, k) vapply(p, function(z) pal[[z]][[k]], character(1))
 boxes$fill <- col(boxes$phase, "fill"); boxes$bcol <- col(boxes$phase, "border"); boxes$tcol <- col(boxes$phase, "text")
 
 # --- phase bands (behind) --------------------------------------------------
 bands <- data.frame(
-  xmin = c(1.55, 3.55, 0.55),
-  xmax = c(5.45, 5.45, 3.45),
-  ymin = c(r1-hh-0.13, r2-hh-0.13, -1.02-hh-0.13),
-  ymax = c(r1+hh+0.30, r2+hh+0.54, r2+hh+0.54),
-  hue  = c("#0072B2", "#009E73", "#E69F00"),
-  lab  = c("Shoreline extraction  ·  strandline extract", "Transect geometry", "Change analysis")
+  xmin = c(1.55, 3.55, 1.55, 1.55),
+  xmax = c(5.45, 5.45, 3.45, 5.45),
+  ymin = c(r1-hh-0.13, r2-hh-0.13, r2-hh-0.13, r3-hh-0.13),
+  ymax = c(r1+hh+0.30, r2+hh+0.30, r2+hh+0.30, r3+hh+0.30),
+  hue  = c("#0072B2", "#009E73", "#E69F00", "#CC79A7"),
+  lab  = c("Shoreline extraction", "Transect geometry", "Change analysis",
+           "Consistency checks")
 )
 
 # --- arrows ----------------------------------------------------------------
@@ -69,14 +75,15 @@ arr <- rbind(
   seg(1+hw, r1, 2-hw, r1), seg(2+hw, r1, 3-hw, r1), seg(3+hw, r1, 4-hw, r1), seg(4+hw, r1, 5-hw, r1),
   # drop down at right
   seg(5, r1-hh, 5, r2+hh),
-  # row 2 leftward (transects -> intersection -> [over tide] -> rates -> qc)
-  seg(5-hw, r2, 4+hw, r2), seg(4-hw, r2, 2+hw, r2), seg(2-hw, r2, 1+hw, r2),
-  # terminal down
-  seg(1, r2-hh, 1, -1.02+hh)
+  # row 2 leftward
+  seg(5-hw, r2, 4+hw, r2), seg(4-hw, r2, 3+hw, r2), seg(3-hw, r2, 2+hw, r2), seg(2-hw, r2, 1+hw+0.02, r2),
+  # checks row leftward to the flags
+  seg(3-hw, r3, 2+hw+0.02, r3)
 )
-arr_dash <- rbind(  # optional tidal detour
-  seg(3.72, r2-hh, 3.28, -1.02+hh, TRUE),
-  seg(2.72, -1.02+hh, 2.28, r2-hh, TRUE)
+chk <- rbind(  # what each check reads
+  seg(5, r2-hh, 5, r3+hh),              # transects -> refcheck
+  seg(4, r2-hh, 4, r3+hh),              # intersections -> angle
+  seg(3.80, r2-hh, 3.20, r3+hh)         # intersections (+ sensor labels) -> sensor-offset
 )
 
 # --- plot ------------------------------------------------------------------
@@ -90,8 +97,8 @@ p <- ggplot() +
   geom_segment(data = arr, aes(x = x, y = y, xend = xend, yend = yend),
                linewidth = 0.34, colour = "#3A3A3A",
                arrow = arrow(length = unit(1.5, "mm"), type = "closed")) +
-  geom_segment(data = arr_dash, aes(x = x, y = y, xend = xend, yend = yend),
-               linewidth = 0.30, colour = "#9A6A00", linetype = "22",
+  geom_segment(data = chk, aes(x = x, y = y, xend = xend, yend = yend),
+               linewidth = 0.30, colour = "#A0507F", linetype = "22",
                arrow = arrow(length = unit(1.3, "mm"), type = "closed")) +
   # boxes
   geom_rect(data = boxes, aes(xmin = x-hw, xmax = x+hw, ymin = y-hh, ymax = y+hh),
@@ -99,23 +106,23 @@ p <- ggplot() +
             linewidth = ifelse(boxes$dashed, 0.5, 0.6),
             linetype = ifelse(boxes$dashed, "22", "solid")) +
   # terminal (output) pill
-  geom_rect(data = out, aes(xmin = x-hw-0.02, xmax = x+hw+0.02, ymin = y-hh, ymax = y+hh),
+  geom_rect(data = outs, aes(xmin = x-hw-0.02, xmax = x+hw+0.02, ymin = y-hh, ymax = y+hh),
             fill = pal$out$fill, colour = pal$out$border, linewidth = 0.6) +
-  geom_text(data = out, aes(x = x, y = y), label = "Per-transect rates\n+ QC flags",
+  geom_text(data = outs, aes(x = x, y = y, label = lab),
             family = sans_fam, fontface = "bold", size = 2.25, colour = pal$out$text, lineheight = 0.95) +
   # box text: title / detail / cli
   geom_text(data = boxes, aes(x = x, y = y + 0.135, label = title),
             family = sans_fam, fontface = "bold", size = 2.32, colour = boxes$tcol) +
   geom_text(data = subset(boxes, !is.na(detail)), aes(x = x, y = y - 0.02, label = detail),
             family = sans_fam, size = 1.92, colour = boxes$tcol[!is.na(boxes$detail)]) +
-  geom_text(data = subset(boxes, !is.na(cli)), aes(x = x, y = y - 0.185, label = paste0("strandline ", cli)),
+  geom_text(data = subset(boxes, !is.na(cli)), aes(x = x, y = y - 0.185, label = cli),
             family = mono_fam, size = 1.72, colour = "#6E6E6E") +
-  coord_fixed(clip = "off", xlim = c(0.4, 5.6), ylim = c(-1.5, 2.05)) +
+  coord_fixed(clip = "off", xlim = c(0.4, 5.6), ylim = c(-1.95, 2.05)) +
   theme_void() +
   theme(plot.margin = margin(2, 2, 2, 2))
 
 # --- export: PDF + PNG mirror ----------------------------------------------
-W <- 18.0; H <- W * (2.05 + 1.5) / (5.6 - 0.4)   # match coord aspect, no whitespace
+W <- 18.0; H <- W * (2.05 + 1.95) / (5.6 - 0.4)   # match coord aspect, no whitespace
 fig_pdf <- "figures/pipeline.pdf"; fig_png <- "figures/pipeline.png"
 ggsave(fig_pdf, p, width = W, height = H, units = "cm", device = cairo_pdf)
 ggsave(fig_png, p, width = W, height = H, units = "cm", dpi = 300, device = ragg::agg_png)
