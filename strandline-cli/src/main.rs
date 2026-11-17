@@ -1844,7 +1844,7 @@ fn main() -> anyhow::Result<()> {
             std::fs::write(&output, out)
                 .with_context(|| format!("escribiendo {}", output.display()))?;
             eprintln!(
-                "{} transectos × {} shorelines: {} cruces válidos en {:.3} s -> {}",
+                "{} transectos × {} shorelines: {} cruces válidos en {:.6} s -> {}",
                 ts.len(),
                 sls.len(),
                 n_valid,

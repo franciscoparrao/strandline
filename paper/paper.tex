@@ -50,8 +50,9 @@ outside it. The engine has no native or Python run-time dependencies and
 synthesises tides natively. Its stages reproduce their references: transects,
 rates and quality-control labels to rounding at six Chilean sites, tidal
 prediction to 1.2~mm against pyTMD, and CoastSat shorelines to a median of
-0.2~m on matched top-of-atmosphere scenes. The transect-intersection step runs
-37 times faster than a vectorised Python implementation on one thread.
+0.2~m on matched top-of-atmosphere scenes. The transect-intersection step runs about
+1,300 times faster than CoastSat's own routine on one thread, and as fast as a
+numba-compiled implementation.
 Three checks are built in. A reference check, which compares transect anchors
 with an independent coastline and a terrain model, flags four of the six sites
 and reproduces an independent manual diagnosis exactly. A reference-buffered
@@ -450,21 +451,25 @@ Vert, Torrey Pines) and report bias, RMSE and P90 against the surveyed
 shorelines.}
 
 \paragraph{Speed.} The transect-intersection step is timed on 250 transects
-$\times$ 200 synthetic shorelines (49,602 crossings) against a vectorised
-Python implementation of the same algorithm written for the earlier study,
-which loops over transects and shorelines and vectorises over vertices. Only
-the computation is timed: inputs are in memory on both sides, and the engine's
-end-to-end command, which adds process start-up and CSV input and output, is
-reported separately. Each configuration is run 21 times, interleaved, the
-first three discarded; speed-ups are formed per repetition and summarised by
-median and interquartile range. Timings are on an Intel Core i7-1270P (4
+$\times$ 200 synthetic shorelines (49,602 crossings) against five Python
+implementations of the same computation, all validated to give the same
+crossings: CoastSat's \texttt{compute\_intersection\_QC}, copied verbatim; the
+implementation of the earlier study, which loops over transects and shorelines
+and vectorises over vertices; a NumPy version vectorised over all shorelines at
+once; and the same algorithm compiled with numba, on one thread and in parallel
+over transects. Only the computation is timed, with inputs in memory on both
+sides; the engine's end-to-end command, which adds process start-up and CSV
+input and output, is reported separately. Each configuration is run 21 times,
+interleaved, the first three discarded (CoastSat, at minutes per run, three
+times); speed-ups are formed per repetition and summarised by median and
+interquartile range; a run is accepted when the interquartile range of every
+ratio is within 20\% of its median. Timings are on an Intel Core i7-1270P (4
 performance and 8 efficiency cores, 16 threads), 38~GB RAM, Linux,
-\texttt{rustc}~1.96.1, NumPy~1.26.4.
-\todo{add a fully vectorised or Numba baseline and CoastSat's own
-\texttt{compute\_intersection\_QC} under the same protocol; time extraction
-with and without the classifier against CoastSat in matched configurations;
-add thread and problem-size scaling, peak memory, and an end-to-end run of a
-full site.}
+\texttt{rustc}~1.96.1, NumPy~1.26.4, numba~0.60.0. Scaling is measured over
+thread counts and over 50--1,600 shorelines, and peak resident memory with
+\texttt{/usr/bin/time} on each implementation in its own process.
+\todo{time extraction with and without the classifier against CoastSat in
+matched configurations, and an end-to-end run of a full site.}
 
 \paragraph{Checks.} \texttt{refcheck} is run on the original transects of the
 six sites and compared with a diagnosis made independently, by hand-written
@@ -500,37 +505,57 @@ share of vertices disagree by tens of metres. \todo{locate and explain these
 vertices.}
 
 \subsection{Speed}
-On one thread the intersection operator takes 0.201~s against 7.34~s for the
-Python implementation, a 37-fold speed-up (Table~\ref{tab:speed}). On 16
-threads it takes 0.027~s (280-fold), a 7.4-fold gain over one thread on a
-processor with 4 performance and 8 efficiency cores. The end-to-end command, charged with
-start-up and CSV input and output that the in-memory Python function does not
-pay, returns in 0.13~s. Two independent runs whose median Python times
-differed by 13\% gave speed-ups that agreed to 0.1\%, because interleaving
-exposes both sides to the same machine load. Parallel and single-threaded
-outputs are identical.
+Against the code a CoastSat user runs, the intersection step is about 1,300
+times faster on one thread: CoastSat's routine takes 7.3~minutes on this
+workload, mostly because it computes each vertex's distance to the transect
+origin in a Python loop, and the engine 0.27~s (Table~\ref{tab:speed}). Against
+better Python the gap narrows and then closes. The implementation of the
+earlier study is 37 times slower than one engine thread, and the fully
+vectorised NumPy version 14 times slower. The numba-compiled version runs at
+the same speed as the engine on one thread, and on 16 threads the engine is
+1.3 times faster. The speed of the operator therefore comes from compilation,
+not from anything specific to Rust; what the engine adds is that the compiled
+path is the default one, with no just-in-time compiler or Python environment
+to install. The end-to-end command, including start-up and CSV input and
+output, returns in 0.17~s.
+
+Both compiled versions scale linearly with the number of shorelines, from 50
+to 1,600, while the vectorised NumPy version grows faster than linearly
+(3.6~s at 200 shorelines, 68~s at 1,600), because it sorts every candidate
+vertex. On 16 threads the engine is 4.6 times faster than on one, and numba
+3.9 times, on a processor whose 8 efficiency cores are slower than its 4
+performance cores. The engine's command peaks at 27.5~MB of resident memory
+whatever the thread count, including CSV parsing; a Python process that only
+loads the workload already uses 122~MB, and the vectorised and numba versions
+reach 153~MB. Parallel and single-threaded outputs are identical.
 
 \begin{table}[t]
   \centering
   \small
   \caption{Intersection benchmark, 250 transects $\times$ 200 shorelines, 21
-  interleaved repetitions (first three discarded). Speed-ups are formed per
-  repetition. The reference is a Python implementation that loops over
-  transects and shorelines and vectorises over vertices; the last row adds
-  process start-up and CSV input/output, which the reference does not pay.}
+  interleaved repetitions (first three discarded; CoastSat three
+  repetitions). All implementations give the same crossings. Speed-ups are
+  formed per repetition against one and 16 engine threads; the engine's
+  operator takes 0.266~s on one thread and 0.039~s on 16, and its end-to-end
+  command 0.175~s. $^\dagger$The interquartile range of this ratio is 27\% of
+  its median, above the 20\% acceptance criterion.}
   \label{tab:speed}
   \begin{tabular}{@{}lrrr@{}}
     \toprule
-    Configuration & Time (s) & Speed-up & IQR of speed-up \\
+    Python implementation & Time (s) & \multicolumn{2}{c}{Engine speed-up} \\
+                          &          & 1 thread & 16 threads \\
     \midrule
-    Python implementation             & 7.34  & ---           & --- \\
-    \midrule
-    Intersection operator, 1 thread   & 0.201 & $37.2\times$  & 15\% \\
-    Intersection operator, 16 threads & 0.027 & $279.8\times$ & 15\% \\
-    End-to-end command line           & 0.132 & $56.3\times$  & 9\% \\
+    CoastSat \texttt{compute\_intersection\_QC} & 436.6 & $1294\times$ & $7944\times$ \\
+    Loop over shorelines (earlier study)        & 9.86  & $36.7\times$ & $260\times$ \\
+    NumPy, vectorised over shorelines           & 3.61  & $13.6\times$ & $94.0\times$ \\
+    numba, 1 thread                             & 0.270 & $1.0\times$  & $6.9\times$ \\
+    numba, 16 threads                           & 0.056 & $0.2\times$  & $1.3\times^\dagger$ \\
     \bottomrule
   \end{tabular}
 \end{table}
+\todo{rerun the speed mode on an idle machine so that every ratio meets the
+acceptance criterion (this run had a background load of 3--4 from other
+jobs).}
 
 \subsection{Reference geometry}\label{subsec:res_reference}
 On the original transects, \texttt{refcheck} flags four of the six sites

@@ -1,0 +1,49 @@
+  carga 4.2 > 4.0; esperando (0/3600 s)
+  carga 4.2 > 4.0; esperando (15/3600 s)
+== speed (carga inicial 3.9) ==
+correctitud: {"coastsat": {"nan_mismatches": 0, "max_abs_diff_m": 1.1368683772161603e-13}, "numpy_vec": {"nan_mismatches": 0, "max_abs_diff_m": 2.2737367544323206e-13}, "numba_1t": {"nan_mismatches": 0, "max_abs_diff_m": 2.2737367544323206e-13}, "numba_par": {"nan_mismatches": 0, "max_abs_diff_m": 2.2737367544323206e-13}, "rust": {"n_crossings": 49602, "nan_mismatches": 0, "max_abs_chainage_diff_m": 0.00011641275074225632, "median_abs_chainage_diff_m": 2.92115869058307e-05}}
+  ronda 1/21: python_loop 12.5289 | numpy_vec 4.3824 | numba_1t 0.3325 | numba_par 0.0627 | rust_1t 0.3281 | rust_par 0.0518 | rust_cli_wall 0.2203 (warm-up)
+  ronda 2/21: python_loop 13.4531 | numpy_vec 4.8019 | numba_1t 0.3652 | numba_par 0.0769 | rust_1t 0.3407 | rust_par 0.0543 | rust_cli_wall 0.2245 (warm-up)
+  ronda 3/21: python_loop 13.4490 | numpy_vec 4.6614 | numba_1t 0.3459 | numba_par 0.0867 | rust_1t 0.3467 | rust_par 0.0495 | rust_cli_wall 0.2325 (warm-up)
+  ronda 4/21: coastsat 436.5866 | python_loop 14.1987 | numpy_vec 4.9969 | numba_1t 0.3640 | numba_par 0.0958 | rust_1t 0.3317 | rust_par 0.0529 | rust_cli_wall 0.2308 
+  ronda 5/21: coastsat 455.8805 | python_loop 13.0552 | numpy_vec 4.8089 | numba_1t 0.3823 | numba_par 0.1094 | rust_1t 0.4492 | rust_par 0.0882 | rust_cli_wall 0.3440 
+  ronda 6/21: coastsat 375.5138 | python_loop 9.7389 | numpy_vec 3.5750 | numba_1t 0.2763 | numba_par 0.0560 | rust_1t 0.2902 | rust_par 0.0473 | rust_cli_wall 0.2055 
+  ronda 7/21: python_loop 10.9622 | numpy_vec 3.5441 | numba_1t 0.2765 | numba_par 0.0567 | rust_1t 0.2644 | rust_par 0.0426 | rust_cli_wall 0.1823 
+  ronda 8/21: python_loop 9.6162 | numpy_vec 3.5423 | numba_1t 0.2517 | numba_par 0.0583 | rust_1t 0.2602 | rust_par 0.0358 | rust_cli_wall 0.1650 
+  ronda 9/21: python_loop 9.6957 | numpy_vec 3.4765 | numba_1t 0.2601 | numba_par 0.0440 | rust_1t 0.2577 | rust_par 0.0369 | rust_cli_wall 0.1640 
+  ronda 10/21: python_loop 9.5164 | numpy_vec 3.6065 | numba_1t 0.2615 | numba_par 0.0498 | rust_1t 0.2623 | rust_par 0.0389 | rust_cli_wall 0.1705 
+  ronda 11/21: python_loop 10.1780 | numpy_vec 3.5777 | numba_1t 0.2678 | numba_par 0.0634 | rust_1t 0.2653 | rust_par 0.0375 | rust_cli_wall 0.1674 
+  ronda 12/21: python_loop 9.8371 | numpy_vec 3.5851 | numba_1t 0.2762 | numba_par 0.0562 | rust_1t 0.2705 | rust_par 0.0373 | rust_cli_wall 0.1719 
+  ronda 13/21: python_loop 9.7392 | numpy_vec 3.6730 | numba_1t 0.2609 | numba_par 0.0503 | rust_1t 0.2685 | rust_par 0.0443 | rust_cli_wall 0.1847 
+  ronda 14/21: python_loop 10.0244 | numpy_vec 3.6477 | numba_1t 0.2569 | numba_par 0.0567 | rust_1t 0.2607 | rust_par 0.0349 | rust_cli_wall 0.1715 
+  ronda 15/21: python_loop 10.1247 | numpy_vec 4.7221 | numba_1t 0.2712 | numba_par 0.0565 | rust_1t 0.2666 | rust_par 0.0361 | rust_cli_wall 0.1610 
+  ronda 16/21: python_loop 9.8861 | numpy_vec 3.6174 | numba_1t 0.3083 | numba_par 0.0544 | rust_1t 0.2770 | rust_par 0.0466 | rust_cli_wall 0.2101 
+  ronda 17/21: python_loop 9.7904 | numpy_vec 3.4836 | numba_1t 0.2568 | numba_par 0.0543 | rust_1t 0.2524 | rust_par 0.0352 | rust_cli_wall 0.1638 
+  ronda 18/21: python_loop 9.5370 | numpy_vec 3.5809 | numba_1t 0.2594 | numba_par 0.0441 | rust_1t 0.2655 | rust_par 0.0382 | rust_cli_wall 0.1892 
+  ronda 19/21: python_loop 9.5508 | numpy_vec 3.6725 | numba_1t 0.2746 | numba_par 0.0526 | rust_1t 0.2669 | rust_par 0.0393 | rust_cli_wall 0.1778 
+  ronda 20/21: python_loop 9.9110 | numpy_vec 3.6814 | numba_1t 0.3022 | numba_par 0.0661 | rust_1t 0.2996 | rust_par 0.0524 | rust_cli_wall 0.2067 
+  ronda 21/21: python_loop 10.8023 | numpy_vec 3.6491 | numba_1t 0.2498 | numba_par 0.0543 | rust_1t 0.2586 | rust_par 0.0357 | rust_cli_wall 0.1648 
+   -> benchmark_fair_speed.json
+== scaling (carga inicial 3.1) ==
+   1 hilos: rust 0.2480 s, numba 0.2803 s
+   2 hilos: rust 0.1595 s, numba 0.1816 s
+   4 hilos: rust 0.1030 s, numba 0.1186 s
+   8 hilos: rust 0.0650 s, numba 0.0994 s
+  12 hilos: rust 0.0584 s, numba 0.0874 s
+  16 hilos: rust 0.0540 s, numba 0.0727 s
+     50 shorelines: python_loop 2.5099 | numpy_vec 0.8011 | numba_par 0.0160 | rust_1t 0.0632 | rust_par 0.0098
+    100 shorelines: python_loop 4.8880 | numpy_vec 1.7303 | numba_par 0.0272 | rust_1t 0.1320 | rust_par 0.0190
+    200 shorelines: python_loop 9.9497 | numpy_vec 3.9323 | numba_par 0.0651 | rust_1t 0.3074 | rust_par 0.0428
+    400 shorelines: python_loop 19.4888 | numpy_vec 7.3246 | numba_par 0.1176 | rust_1t 0.5733 | rust_par 0.0795
+    800 shorelines: numpy_vec 17.4977 | numba_par 0.2473 | rust_1t 1.1332 | rust_par 0.2206
+   1600 shorelines: numpy_vec 67.9159 | numba_par 0.8165 | rust_1t 2.3096 | rust_par 0.6193
+   -> benchmark_fair_scaling.json
+== memory (carga inicial 3.9) ==
+  baseline     RSS pico 122.4 MB
+  coastsat     RSS pico 122.9 MB
+  python_loop  RSS pico 122.9 MB
+  numpy_vec    RSS pico 152.8 MB
+  numba_par    RSS pico 152.8 MB
+  rust CLI  1 hilos RSS pico 27.5 MB
+  rust CLI 16 hilos RSS pico 27.5 MB
+   -> benchmark_fair_memory.json

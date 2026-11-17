@@ -49,3 +49,6 @@ strandline-core/tests/fixtures/sensor_pairs/
 # Exportes CSV de validate_cli.py (pesados y regenerables desde los pickles)
 /spike/transect_angle/cli/
 /spike/transect_angle/ocean/cli/
+
+# Entorno fijo del benchmark de intersección
+/spike/transects/.venv-bench/

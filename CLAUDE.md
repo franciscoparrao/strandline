@@ -1639,3 +1639,16 @@ benchmark (software + accuracy vs CoastSat + velocidad).
   - **GOTCHA de datos**: el conjunto original ya no se regenera: Coquimbo cambió en
     `/mnt/kingston` (2026-08-31) y `VALDIVIA_output.pkl` ya no está. Las cifras de 538
     transectos/39,9° del paper quedan con `\todo`.
+
+- **2026-11-16**: **Benchmark justo de la intersección** (`spike/transects/benchmark_fair.py`,
+  entorno fijo `.venv-bench`: NumPy 1.26.4 + numba 0.60.0; el NumPy del sistema subió a 2.5 y
+  numba no lo soporta). Cinco baselines Python validados idénticos (1e-13 m): CoastSat
+  `compute_intersection_QC` copiado literal (commit 98103cb), loop del estudio, NumPy
+  vectorizado, numba 1 hilo y paralelo. Un hilo: **CoastSat 1.294×, loop 37×, NumPy 14×,
+  numba 1,0×**; 16 hilos vs numba paralelo 1,3× (IQR 27 %, sobre el criterio de 20 %: la
+  máquina tenía carga 3–4 de otras sesiones; hay que repetir en máquina libre). Escalamiento
+  lineal en shorelines para Rust y numba (NumPy superlineal por el sort); 16 hilos = 4,6× en
+  Rust. Memoria pico: Rust 27,5 MB, Python ≥122 MB. **Conclusión que el paper ya refleja: la
+  velocidad viene de compilar, no de Rust; el aporte es que el camino compilado es el default
+  y sin entorno.** El 280× de la Tabla 2 anterior mezclaba paralelismo con un baseline débil.
+  El CLI ahora imprime el tiempo del operador con resolución de µs.
