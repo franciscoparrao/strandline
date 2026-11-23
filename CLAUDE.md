@@ -1652,3 +1652,19 @@ benchmark (software + accuracy vs CoastSat + velocidad).
   velocidad viene de compilar, no de Rust; el aporte es que el camino compilado es el default
   y sin entorno.** El 280× de la Tabla 2 anterior mezclaba paralelismo con un baseline débil.
   El CLI ahora imprime el tiempo del operador con resolución de µs.
+
+- **2026-11-17**: **Exactitud contra levantamientos en Duck (Vos 2023, SDS_Benchmark)** —
+  `spike/vos2023/` (`duck_groundtruth.py`, `duck_run.py`, `duck_results.{txt,json}`); datos en
+  `/mnt/kingston/VOS2023` (clon recortado del benchmark, commit c0747c5; FRF ahora en
+  `chldata.erdc.dren.mil`; Narrabeen exige cuenta en el WRL: decisión del usuario).
+  Configuración igual a la entrega de CoastSat (max_dist_ref 100, min_length 500, along 25,
+  despike 40, FES2014 + pendiente 0,1, sumando) y su `compare_timeseries2` (±10 días).
+  **Pareado sobre los mismos transecto×fecha: strandline iguala a CoastSat** (seleccionados:
+  RMSE 8,8 vs 8,9, Δ|e| +0,16 m IC95 [−0,50, +0,59]) con **menos sesgo** (−3,1 vs −4,5), leyendo
+  SR a 30 m sin pansharpening; `--subpixel-refine` algo mejor en todos los transectos (Δ|e|
+  −0,29 [−0,50, −0,10]). El modo por defecto empareja la mitad de fechas: con 30 m deja 81
+  vértices/escena (vs 130 refinado) y muchos transectos no llegan a 3 puntos en la franja
+  ±25 m. GOTCHAs: el polígono y la referencia del benchmark traen z; las mareas FES2014 del
+  benchmark terminan el 2025-01-01; `fetch` no guarda la hora (se consulta el STAC por id).
+  **`/mnt/kingston` quedó lleno (0 B) a mitad del fetch**: se liberaron 4,7 GB borrando
+  solo material propio regenerable; el disco ya estaba al ~100 % antes.

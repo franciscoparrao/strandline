@@ -50,7 +50,9 @@ outside it. The engine has no native or Python run-time dependencies and
 synthesises tides natively. Its stages reproduce their references: transects,
 rates and quality-control labels to rounding at six Chilean sites, tidal
 prediction to 1.2~mm against pyTMD, and CoastSat shorelines to a median of
-0.2~m on matched top-of-atmosphere scenes. The transect-intersection step runs about
+0.2~m on matched top-of-atmosphere scenes. Against surveys at Duck (USA), a
+site of a community benchmark, it is as accurate as CoastSat (RMSE 8.8 against
+8.9~m on the same survey dates) and less biased. The transect-intersection step runs about
 1,300 times faster than CoastSat's own routine on one thread, and as fast as a
 numba-compiled implementation.
 Three checks are built in. A reference check, which compares transect anchors
@@ -445,10 +447,23 @@ features to the class \emph{other} instead of replacing them with $10^{-9}$.
 modes, on identical vertex support; report the share of distances above 10~m
 and explain the tail.}
 
-\paragraph{Accuracy against surveys.} \todo{run strandline at one or more
-survey sites of the \citet{vos2023benchmark} benchmark (Narrabeen, Duck, Truc
-Vert, Torrey Pines) and report bias, RMSE and P90 against the surveyed
-shorelines.}
+\paragraph{Accuracy against surveys.} At Duck, North Carolina, one of the four
+sites of the \citet{vos2023benchmark} benchmark, the engine is scored against
+the survey-derived mean-sea-level shoreline with the benchmark's own inputs and
+protocol: its transects, reference shoreline, modelled tides and beach slope
+(0.1), and its comparison routine, which pairs each survey with the satellite
+series within 10 days. Surveys of the Field Research Facility (919 surveys,
+1984--2025) are processed into shoreline positions as in the benchmark. The
+engine reads 1,066 Landsat~5--9 surface-reflectance scenes with \texttt{fetch},
+discards those with more than 10\% cloud over the site (617 remain), and
+otherwise uses the settings of the CoastSat submission to the benchmark: a
+100~m reference band, 500~m minimum shoreline length, a 25~m intersection
+strip, CoastSat's despiking at 40~m and the tidal correction of
+Eq.~\ref{eq:tide}. The CoastSat submission, which used pan-sharpened
+top-of-atmosphere imagery, is scored with the same routine, and the two are
+also compared on the subset of transect--survey pairs that both match.
+\todo{add a second site (Truc Vert and Torrey Pines are public; Narrabeen needs
+a registered download).}
 
 \paragraph{Speed.} The transect-intersection step is timed on 250 transects
 $\times$ 200 synthetic shorelines (49,602 crossings) against five Python
@@ -503,6 +518,49 @@ from CoastSat's (mean 3.3~m, 90th percentile 1.2~m). The median is a few
 hundredths of the 15~m grid. The mean exceeds the 90th percentile, so a small
 share of vertices disagree by tens of metres. \todo{locate and explain these
 vertices.}
+
+\subsection{Accuracy against surveys}\label{subsec:res_surveys}
+At Duck the engine is as accurate as CoastSat against the surveys
+(Table~\ref{tab:duck}). On the four transects the benchmark selects for this
+site, its shorelines lie 8.8~m RMSE from the surveyed ones on the pairs that
+both series match, against 8.9~m for CoastSat, and the median difference in
+absolute error is $+0.16$~m (95\% interval $-0.50$ to $+0.59$, bootstrap over
+survey dates). Both are within the 7--10~m that \citet{vos2023benchmark}
+report for the method. The engine is less biased landward ($-3.1$ against
+$-4.5$~m), although it reads surface reflectance at 30~m and CoastSat
+pan-sharpened imagery at 15~m. With \texttt{-{}-subpixel-refine} it is slightly
+more accurate than CoastSat on all transects ($-0.29$~m, interval $-0.50$ to
+$-0.10$), a difference of a few decimetres.
+
+The default mode matches fewer survey dates (640 pairs on the selected
+transects, against 1,340 with refinement). At 30~m the contour has fewer
+vertices (a median of 81 per scene, against 130 with refinement), and on many
+transects fewer than the three that the intersection's quality control requires
+fall inside the $\pm25$~m strip. The refinement restores coverage close to that
+of CoastSat.
+
+\begin{table}[t]
+  \centering
+  \small
+  \caption{Accuracy against surveys at Duck (mean-sea-level shoreline,
+  Landsat), on the transect--survey pairs matched by both series. Each cell
+  gives strandline / CoastSat; errors are satellite minus survey (m), negative
+  landward. $\Delta|e|$ is the median paired difference in absolute error,
+  strandline minus CoastSat, with a 95\% bootstrap interval over survey
+  dates. Unpaired, CoastSat matches 1,580 pairs on the selected transects
+  (RMSE 9.2~m), strandline 700 (9.3~m) and the refined mode 1,468 (8.9~m).}
+  \label{tab:duck}
+  \begin{tabular}{@{}llrcccc@{}}
+    \toprule
+    Transects & strandline mode & $n$ & RMSE & Bias & P90 & $\Delta|e|$ (95\% interval) \\
+    \midrule
+    Selected (4) & default & 640  & 8.8 / 8.9 & $-3.1$ / $-4.5$ & 14.7 / 14.5 & $+0.16$ ($-0.50$, $+0.59$) \\
+                 & refined & 1340 & 8.6 / 9.2 & $-2.3$ / $-4.1$ & 13.6 / 14.7 & $-0.15$ ($-0.38$, $+0.10$) \\
+    All (33)     & default & 2249 & 9.5 / 9.1 & $-2.6$ / $-4.1$ & 15.0 / 14.4 & $-0.06$ ($-0.46$, $+0.24$) \\
+                 & refined & 5986 & 9.0 / 9.4 & $-3.1$ / $-4.4$ & 14.2 / 14.9 & $-0.29$ ($-0.50$, $-0.10$) \\
+    \bottomrule
+  \end{tabular}
+\end{table}
 
 \subsection{Speed}
 Against the code a CoastSat user runs, the intersection step is about 1,300
@@ -730,9 +788,9 @@ needs years in which two sensors overlap and cannot detect a bias that is the
 same for both. The angle check measures obliquity, not its effect on a rate,
 which depends on how the shoreline moves.
 
-The engine reproduces CoastSat rather than improving on it, and its agreement
-numbers are agreement with CoastSat, not accuracy against the coast. The
-reproduction is what makes the checks useful: an analyst can run the same
+The engine reproduces CoastSat rather than improving on it. Its agreement
+numbers measure agreement with CoastSat; its accuracy against the coast rests
+on one surveyed site, where it equals CoastSat. The reproduction is what makes the checks useful: an analyst can run the same
 method as a published study and test its geometry and sensor consistency
 without changing anything else. Compilation matters for the same reason. A
 check that needs a second extraction, a second sensor or a national transect
@@ -742,9 +800,9 @@ Several limits remain. The CoastSat classifier does not transfer to surface
 reflectance, and an attempt to retrain it with automatic labels failed on arid
 coasts, where desert soil and beach sand are spectrally alike; the surface
 reflectance path therefore thresholds without classification. The engine does
-not correct for wave set-up or run-up. All six sites and the 60 beaches are on
-the Chilean Pacific coast, and the external application of the reference check
-is limited to one Australian region.
+not correct for wave set-up or run-up. The six sites and the 60 beaches are on
+the Chilean Pacific coast; outside it, accuracy is tested at one surveyed site
+(Duck) and the reference check at one Australian region.
 
 %============================================================
 \section{Conclusions}
